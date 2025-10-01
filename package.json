@@ -4,7 +4,7 @@
   "description": "Playwright helper scripts for the code-play examples",
   "private": true,
   "scripts": {
-    "capture:css-animation": "node scripts/capture-css-animation.js"
+    "capture:animation": "node scripts/capture-animation-screenshot.js"
   },
   "dependencies": {
     "playwright": "^1.43.0"
