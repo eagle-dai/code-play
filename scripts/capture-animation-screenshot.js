@@ -67,35 +67,6 @@ const TARGET_TIME_MS = 4_000;
         console.warn('Failed to fast-forward animation', error);
       }
     }
-
-    const timestampElement = document.getElementById('timestampRaf');
-    if (timestampElement) {
-      const formatElapsedTime =
-        typeof window.formatElapsedTime === 'function'
-          ? window.formatElapsedTime
-          : (milliseconds) => {
-              const elapsed = Math.max(0, Math.floor(milliseconds));
-              const totalSeconds = Math.floor(elapsed / 1000);
-              const minutes = String(Math.floor(totalSeconds / 60)).padStart(
-                2,
-                '0'
-              );
-              const seconds = String(totalSeconds % 60).padStart(2, '0');
-              const ms = String(elapsed % 1000).padStart(3, '0');
-              return `${minutes}:${seconds}.${ms}`;
-            };
-
-      const desiredTimestamp = formatElapsedTime(targetTimeMs);
-      timestampElement.textContent = desiredTimestamp;
-
-      Object.defineProperty(timestampElement, 'textContent', {
-        configurable: true,
-        get() {
-          return desiredTimestamp;
-        },
-        set() {},
-      });
-    }
   }, TARGET_TIME_MS);
 
   const safeName = animationFile
