@@ -1,0 +1,12 @@
+{
+  "name": "code-play",
+  "version": "1.0.0",
+  "description": "Playwright helper scripts for the code-play examples",
+  "private": true,
+  "scripts": {
+    "capture:css-animation": "node scripts/capture-css-animation.js"
+  },
+  "dependencies": {
+    "playwright": "^1.43.0"
+  }
+}
