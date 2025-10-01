@@ -1,4 +1,5 @@
 const { chromium } = require('playwright');
+const fs = require('fs/promises');
 const path = require('path');
 
 (async () => {
@@ -30,8 +31,17 @@ const path = require('path');
 
   await budgetExpired;
 
+  const screenshotPath = path.resolve(
+    __dirname,
+    '..',
+    'tmp',
+    'output',
+    'css-animation-4s.png'
+  );
+  await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
+
   await page.screenshot({
-    path: path.resolve(__dirname, '..', 'assets', 'example', 'css-animation-4s.png'),
+    path: screenshotPath,
   });
 
   await browser.close();
