@@ -21,6 +21,8 @@ const targetPath = path.resolve(
   animationFile
 );
 
+const TARGET_TIME_MS = 4_000;
+
 (async () => {
   try {
     await fs.access(targetPath);
@@ -45,16 +47,12 @@ const targetPath = path.resolve(
     budget: 0,
   });
 
-  const budgetExpired = new Promise((resolve) =>
-    client.once('Emulation.virtualTimeBudgetExpired', resolve)
-  );
-
   await client.send('Emulation.setVirtualTimePolicy', {
     policy: 'pauseIfNetworkFetchesPending',
-    budget: 4000,
+    budget: TARGET_TIME_MS,
   });
 
-  await budgetExpired;
+  await page.waitForTimeout(1000);
 
   // Force CSS animations to their state at the 4-second mark. Some animations
   // keep running indefinitely which can prevent the visual state from ever
@@ -98,13 +96,14 @@ const targetPath = path.resolve(
         set() {},
       });
     }
-  }, 4000);
+  }, TARGET_TIME_MS);
 
   const safeName = animationFile
     .replace(/[\\/]/g, '-')
     .replace(/\.html?$/i, '')
     .trim();
-  const screenshotFilename = `${safeName || 'animation'}-4s.png`;
+  const targetSeconds = Math.round(TARGET_TIME_MS / 1000);
+  const screenshotFilename = `${safeName || 'animation'}-${targetSeconds}s.png`;
   const screenshotPath = path.resolve(
     __dirname,
     '..',
