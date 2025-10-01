@@ -17,7 +17,7 @@ const targetPath = path.resolve(
   __dirname,
   '..',
   'assets',
-  'examples',
+  'example',
   animationFile
 );
 
