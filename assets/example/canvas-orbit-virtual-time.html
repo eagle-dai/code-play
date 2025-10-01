@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>canvas-orbit-virtual-time</title>
+    <style>
+      :root {
+        background: #0f172a;
+        font-family: "Arimo", sans-serif;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      #stage {
+        position: relative;
+        width: 320px;
+        height: 240px;
+        border-radius: 16px;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.6);
+        overflow: hidden;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        background: radial-gradient(circle at 50% 35%, #1d4ed8, #020617 65%);
+      }
+      #timestampRaf {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        padding: 6px 10px;
+        background: rgba(2, 6, 23, 0.65);
+        border-radius: 999px;
+        color: #e2e8f0;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+      #caption {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #cbd5f5;
+        font-size: 14px;
+        letter-spacing: 0.1em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="universe" width="320" height="240"></canvas>
+      <div id="timestampRaf">00:00.000</div>
+      <div id="caption">ORBITAL PLAYGROUND</div>
+    </div>
+    <script>
+      const canvas = document.getElementById("universe");
+      const ctx = canvas.getContext("2d");
+      const timestampElement = document.getElementById("timestampRaf");
+
+      // Updates the timestamp to reflect elapsed milliseconds using rAF.
+      function formatElapsedTime(milliseconds) {
+        const elapsed = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(elapsed / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(elapsed % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      const startTime = performance.now();
+
+      function updateTimestamp() {
+        const elapsed = performance.now() - startTime;
+        timestampElement.textContent = formatElapsedTime(elapsed);
+        requestAnimationFrame(updateTimestamp);
+      }
+
+      requestAnimationFrame(updateTimestamp);
+
+      // Configure drawing helpers for crisp lines.
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2 + 12;
+      const orbitRadii = [36, 64, 92];
+      const planetSizes = [6, 8, 11];
+      const angularSpeeds = [0.0026, 0.0018, 0.0012];
+
+      function drawBackground(elapsed) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, "rgba(56, 189, 248, 0.35)");
+        gradient.addColorStop(0.6, "rgba(14, 116, 144, 0.1)");
+        gradient.addColorStop(1, "rgba(8, 47, 73, 0.4)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(elapsed * 0.00005);
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.25)";
+        ctx.lineWidth = 1;
+        orbitRadii.forEach((radius) => {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, radius, radius * 0.6, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+        ctx.restore();
+      }
+
+      function drawStar(elapsed) {
+        ctx.save();
+        ctx.translate(centerX, centerY);
+
+        const pulsate = Math.sin(elapsed * 0.004) * 4 + 22;
+        const starGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, pulsate);
+        starGradient.addColorStop(0, "#fde68a");
+        starGradient.addColorStop(0.5, "#facc15");
+        starGradient.addColorStop(1, "rgba(250, 204, 21, 0)");
+        ctx.fillStyle = starGradient;
+        ctx.beginPath();
+        ctx.arc(0, 0, pulsate, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#fef3c7";
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawPlanets(elapsed) {
+        ctx.save();
+        ctx.translate(centerX, centerY);
+
+        orbitRadii.forEach((radius, index) => {
+          const angle = elapsed * angularSpeeds[index];
+          const planetX = Math.cos(angle) * radius;
+          const planetY = Math.sin(angle) * radius * 0.6;
+
+          const glow = ctx.createRadialGradient(planetX, planetY, 0, planetX, planetY, planetSizes[index] * 2.2);
+          glow.addColorStop(0, "rgba(14, 165, 233, 0.55)");
+          glow.addColorStop(1, "rgba(14, 165, 233, 0)");
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(planetX, planetY, planetSizes[index] * 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = ["#f8fafc", "#38bdf8", "#0ea5e9"][index % 3];
+          ctx.beginPath();
+          ctx.arc(planetX, planetY, planetSizes[index], 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.strokeStyle = "rgba(14, 116, 144, 0.4)";
+          ctx.beginPath();
+          ctx.arc(planetX, planetY, planetSizes[index] + 4, 0, Math.PI * 2);
+          ctx.stroke();
+        });
+
+        ctx.restore();
+      }
+
+      function render() {
+        const elapsed = performance.now() - startTime;
+        drawBackground(elapsed);
+        drawStar(elapsed);
+        drawPlanets(elapsed);
+        requestAnimationFrame(render);
+      }
+
+      requestAnimationFrame(render);
+    </script>
+  </body>
+</html>

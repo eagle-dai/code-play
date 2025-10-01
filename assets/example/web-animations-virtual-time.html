@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>web-animations-virtual-time</title>
+    <style>
+      :root {
+        background: #dadada;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+      #stage {
+        width: 320px;
+        height: 240px;
+        background: linear-gradient(135deg, #0f172a, #1e293b);
+        border-radius: 18px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.45);
+      }
+      .ball {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        background: radial-gradient(circle at 30% 30%, #facc15, #f97316);
+        box-shadow: 0 6px 12px rgba(249, 115, 22, 0.6);
+      }
+      .trail {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        grid-template-rows: repeat(4, 1fr);
+        gap: 2px;
+        opacity: 0.4;
+      }
+      .trail span {
+        background: rgba(148, 163, 184, 0.12);
+        border-radius: 4px;
+        transform-origin: center;
+      }
+      #timeLabel {
+        position: absolute;
+        right: 12px;
+        bottom: 12px;
+        padding: 6px 10px;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        background: rgba(15, 23, 42, 0.75);
+        color: #e2e8f0;
+        border-radius: 999px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div class="trail"></div>
+      <div class="ball"></div>
+      <div id="timeLabel">00:00.000</div>
+    </div>
+    <script>
+      const ball = document.querySelector(".ball");
+      const trailContainer = document.querySelector(".trail");
+      const timeLabel = document.getElementById("timeLabel");
+
+      // Updates the timestamp to reflect elapsed milliseconds using rAF.
+      function formatElapsedTime(milliseconds) {
+        const elapsed = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(elapsed / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(elapsed % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      const startTime = performance.now();
+
+      function updateTimestamp() {
+        const elapsed = performance.now() - startTime;
+        timeLabel.textContent = formatElapsedTime(elapsed);
+        requestAnimationFrame(updateTimestamp);
+      }
+
+      requestAnimationFrame(updateTimestamp);
+
+      // Create trail elements for subtle parallax tiles.
+      const trailTiles = Array.from({ length: 24 }, (_, index) => {
+        const tile = document.createElement("span");
+        tile.style.opacity = (index % 6) * 0.05 + 0.15;
+        trailContainer.appendChild(tile);
+        return tile;
+      });
+
+      const travelPath = [
+        { transform: "translate(0px, 0px)" },
+        { transform: "translate(220px, 0px)" },
+        { transform: "translate(220px, 160px)" },
+        { transform: "translate(0px, 160px)" },
+        { transform: "translate(0px, 0px)" },
+      ];
+
+      const ballAnimation = ball.animate(travelPath, {
+        duration: 4000,
+        easing: "ease-in-out",
+        iterations: Infinity,
+      });
+
+      const colorAnimation = ball.animate(
+        [
+          { filter: "hue-rotate(0deg) saturate(120%)" },
+          { filter: "hue-rotate(120deg) saturate(140%)" },
+          { filter: "hue-rotate(240deg) saturate(120%)" },
+          { filter: "hue-rotate(360deg) saturate(140%)" },
+        ],
+        {
+          duration: 4000,
+          iterations: Infinity,
+        }
+      );
+
+      const tilesAnimation = trailTiles.map((tile, index) =>
+        tile.animate(
+          [
+            { transform: "scale3d(1, 1, 1)", opacity: tile.style.opacity },
+            { transform: "scale3d(1.15, 1.15, 1)", opacity: 0.32 },
+            { transform: "scale3d(1, 1, 1)", opacity: tile.style.opacity },
+          ],
+          {
+            duration: 1600,
+            delay: index * 60,
+            iterations: Infinity,
+            easing: "ease-in-out",
+          }
+        )
+      );
+
+      ballAnimation.startTime = document.timeline.currentTime;
+      colorAnimation.startTime = ballAnimation.startTime;
+      tilesAnimation.forEach((animation) => {
+        animation.startTime = ballAnimation.startTime;
+      });
+    </script>
+  </body>
+</html>

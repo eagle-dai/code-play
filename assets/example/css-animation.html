@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>css-animation-test</title>
+
+    <style>
+      :root {
+        background: #ccc;
+      }
+      html {
+        font-size: 4px;
+      }
+      body {
+        margin: 0;
+        font-family: "Arimo", sans-serif;
+      }
+      #pages {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 320px;
+        height: 240px;
+        overflow: hidden;
+        contain: strict;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #050b2a;
+        color: #fefefe;
+      }
+      #timestampRaf {
+        position: absolute;
+        top: 5%;
+        left: 5%;
+        font: bold 3rem "Arimo", sans-serif;
+        color: #f5f5f5;
+        background: rgba(0, 0, 0, 0.4);
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+        letter-spacing: 0.2rem;
+      }
+      #backgroundHalo {
+        position: absolute;
+        width: 420px;
+        height: 420px;
+        background: conic-gradient(
+          from 180deg,
+          rgba(70, 139, 255, 0.2),
+          rgba(70, 139, 255, 0.8),
+          rgba(70, 139, 255, 0.2)
+        );
+        border-radius: 50%;
+        filter: blur(40px);
+        opacity: 0;
+        animation: haloPulse 6s ease-in-out infinite;
+      }
+      #content {
+        position: relative;
+        width: 85%;
+        text-align: center;
+      }
+      #headline {
+        font-size: 6rem;
+        letter-spacing: 0.4rem;
+        text-transform: uppercase;
+        margin-bottom: 1rem;
+        opacity: 0;
+        transform: translateY(50%);
+        animation: slideUp 1.2s ease forwards;
+      }
+      #subtext {
+        font-size: 3rem;
+        line-height: 1.4;
+        margin: 0 auto;
+        opacity: 0;
+        transform: translateY(40%);
+        animation: slideUp 1.2s ease forwards;
+        animation-delay: 0.6s;
+      }
+      #accentBar {
+        position: relative;
+        width: 0;
+        height: 0.8rem;
+        margin: 4rem auto 0;
+        background: linear-gradient(90deg, #39f, #7af);
+        box-shadow: 0 0 1.2rem rgba(122, 175, 255, 0.8);
+        opacity: 0;
+        animation: growBar 1.6s ease-out forwards;
+        animation-delay: 1.2s;
+      }
+      #badge {
+        position: absolute;
+        right: 10%;
+        top: 12%;
+        width: 6rem;
+        height: 6rem;
+        border-radius: 50%;
+        background: #fbb03b;
+        color: #050b2a;
+        font-size: 2.2rem;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: scale(0.4) rotate(-20deg);
+        opacity: 0;
+        animation: badgePop 1s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        animation-delay: 1.8s;
+      }
+
+      @keyframes slideUp {
+        0% {
+          opacity: 0;
+          transform: translateY(60%);
+        }
+        60% {
+          opacity: 1;
+          transform: translateY(-6%);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes growBar {
+        0% {
+          opacity: 0;
+          width: 0;
+        }
+        45% {
+          opacity: 1;
+          width: 40%;
+        }
+        100% {
+          opacity: 1;
+          width: 70%;
+        }
+      }
+
+      @keyframes badgePop {
+        0% {
+          opacity: 0;
+          transform: scale(0.4) rotate(-20deg);
+        }
+        70% {
+          opacity: 1;
+          transform: scale(1.15) rotate(5deg);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1) rotate(0deg);
+        }
+      }
+
+      @keyframes haloPulse {
+        0%,
+        100% {
+          opacity: 0;
+          transform: scale(0.9) rotate(0deg);
+        }
+        40% {
+          opacity: 0.7;
+          transform: scale(1.05) rotate(35deg);
+        }
+        70% {
+          opacity: 0.4;
+          transform: scale(1) rotate(60deg);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- The pages element will be rendered to the video file. -->
+    <div id="pages">
+      <div id="timestampRaf">00:00.000</div>
+      <div id="backgroundHalo"></div>
+      <div id="content">
+        <div id="headline">CSS Motion</div>
+        <div id="subtext">Smooth animations powered purely by CSS keyframes.</div>
+        <div id="accentBar"></div>
+      </div>
+      <div id="badge">NEW</div>
+    </div>
+
+    <script>
+      // Updates the timestamp to reflect elapsed milliseconds using rAF.
+      const timestampElement = document.getElementById("timestampRaf");
+
+      function formatElapsedTime(milliseconds) {
+        const elapsed = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(elapsed / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(elapsed % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      const startTime = performance.now();
+
+      function updateTimestamp() {
+        const elapsed = performance.now() - startTime;
+        timestampElement.textContent = formatElapsedTime(elapsed);
+        requestAnimationFrame(updateTimestamp);
+      }
+
+      requestAnimationFrame(updateTimestamp);
+    </script>
+  </body>
+</html>

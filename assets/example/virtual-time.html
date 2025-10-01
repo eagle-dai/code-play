@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>anime-test</title>
+
+    <style>
+      :root {
+        background: #ccc;
+      }
+      html {
+        font-size: 4px;
+      }
+      #pages {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 320px;
+        height: 240px;
+        overflow: hidden;
+        contain: strict;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: white;
+      }
+      .page {
+        position: absolute;
+        visibility: hidden;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: darkblue;
+        color: #def;
+      }
+      #text {
+        position: absolute;
+        margin: auto;
+        top: 25%;
+        width: 85%;
+        text-align: center;
+        font: bold 5rem Arimo, sans-serif;
+      }
+      #timestampRaf {
+        position: absolute;
+        top: 5%;
+        font: bold 3rem Arimo, sans-serif;
+        color: #f5f5f5;
+        background: rgba(0, 0, 0, 0.4);
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+        letter-spacing: 0.2rem;
+        left: 5%;
+      }
+      #chromeVer,
+      #date {
+        visibility: hidden;
+        position: absolute;
+        width: 60%;
+        top: 75%;
+        text-align: right;
+        font: bold 2.5rem Arimo, sans-serif;
+        color: lightcoral;
+      }
+      #date {
+        top: 82%;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- The pages element will be rendered to the video file. -->
+    <div id="pages">
+      <div id="textPage" class="page">
+        <div id="text">
+          This video is generated programmatically<br />by SAP Research and Innovation!
+        </div>
+        <div id="timestampRaf">00:00.000</div>
+        <div id="chromeVer">VER</div>
+        <div id="date">DATE</div>
+      </div>
+    </div>
+
+    <script src="./anime32.min.js"></script>
+    <script>
+      const tl = anime.timeline({
+        easing: "easeOutQuad",
+      });
+
+      const timestampRafElement = document.getElementById("timestampRaf");
+      const chromeVersionElement = document.getElementById("chromeVer");
+      const dateElement = document.getElementById("date");
+      const versionInfoTargets = ["#date", "#chromeVer"];
+
+      let timestampStart = 0;
+      let timestampAnimationFrameId = null;
+
+      var loadDone = false;
+      var renderCalled = false;
+
+      function startTimestampTicker() {
+        if (timestampAnimationFrameId !== null) {
+          return;
+        }
+
+        timestampStart = performance.now();
+        updateRafTimestamp(0);
+        startRafTimestampTick();
+      }
+
+      function startRafTimestampTick() {
+        if (timestampAnimationFrameId !== null) {
+          return;
+        }
+
+        const tick = () => {
+          updateRafTimestamp(performance.now() - timestampStart);
+          timestampAnimationFrameId = requestAnimationFrame(tick);
+        };
+
+        timestampAnimationFrameId = requestAnimationFrame(tick);
+      }
+
+      function formatElapsedTime(milliseconds) {
+        const elapsed = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(elapsed / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(elapsed % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      function updateRafTimestamp(milliseconds) {
+        timestampRafElement.textContent = formatElapsedTime(milliseconds);
+      }
+
+      function getChromeVersion() {
+        const raw = navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./);
+        return raw ? parseInt(raw[2], 10) : 0;
+      }
+
+      function setVersionInfo() {
+        chromeVersionElement.textContent = `BROWSER: Chrome ${getChromeVersion()}`;
+        dateElement.textContent = new Date().toLocaleString();
+      }
+
+      // Start function
+      const startFun = async function () {
+        if (!loadDone) {
+          await waitLoad();
+        }
+        if (!renderCalled) {
+          await renderMain();
+          renderCalled = true;
+        }
+      };
+      startFun();
+
+      startTimestampTicker();
+
+      async function renderMain() {
+        // show page
+        tl.set("#textPage", { visibility: "visible" });
+
+        // show text
+        tl.add({
+          targets: "#text",
+          opacity: [0, 1],
+          scale: [4, 1],
+          visibility: "visible",
+          duration: 2000,
+        });
+
+        setVersionInfo();
+        tl.add(
+          {
+            targets: versionInfoTargets,
+            translateX: ["-100%", 0],
+            opacity: [0, 1],
+            duration: 2000,
+            easing: "easeInOutElastic",
+            begin: function () {
+              tl.set(versionInfoTargets, { visibility: "visible" });
+            },
+          },
+          "-=1500"
+        );
+
+        // delay at the end
+        tl.add({ duration: 2000 }, 2000);
+      }
+
+      window.onload = function () {
+        loadDone = true;
+      };
+
+      async function waitLoad() {
+        if (!loadDone) {
+          let deadline = Date.now() + 5000;
+          while (!loadDone && Date.now() < deadline) {
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+      }
+    </script>
+  </body>
+</html>
