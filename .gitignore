@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 bower_components/
+package-lock.json
 
 # Logs
 npm-debug.log*
@@ -48,4 +49,4 @@ Thumbs.db
 *.swp
 
 # Generated assets
-assets/example/css-animation-4s.png
+tmp/output/

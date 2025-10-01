@@ -23,6 +23,6 @@ Follow these steps to configure your environment and run the script:
    ```bash
    npm run capture:css-animation
    ```
-   The screenshot will be written to `assets/example/css-animation-4s.png`.
+   The screenshot will be written to `tmp/output/css-animation-4s.png`.
 
 If you are running in a minimal Linux environment, you may also need system libraries required by Chromium. Playwright documents the list of packages for each distribution in its [installation guide](https://playwright.dev/docs/intro#system-requirements).
