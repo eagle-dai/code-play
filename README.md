@@ -2,9 +2,9 @@
 
 This repository contains small web examples and automation helpers.
 
-## Running the CSS animation capture script
+## Running the animation capture script
 
-The `scripts/capture-css-animation.js` script uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of `assets/example/css-animation.html` and save a screenshot.
+The `scripts/capture-animation-screenshot.js` script uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/examples/` and save a screenshot.
 
 Follow these steps to configure your environment and run the script:
 
@@ -21,8 +21,8 @@ Follow these steps to configure your environment and run the script:
    The script launches Chromium to render the animation.
 4. **Run the capture script:**
    ```bash
-   npm run capture:css-animation
+   npm run capture:animation -- css-animation.html
    ```
-   The screenshot will be written to `tmp/output/css-animation-4s.png`.
+   Replace `css-animation.html` with the relative path of the animation file inside `assets/examples/`. The screenshot will be written to `tmp/output/<animation-name>-4s.png`.
 
 If you are running in a minimal Linux environment, you may also need system libraries required by Chromium. Playwright documents the list of packages for each distribution in its [installation guide](https://playwright.dev/docs/intro#system-requirements).

@@ -1,16 +1,41 @@
 const { chromium } = require('playwright');
 const fs = require('fs/promises');
 const path = require('path');
+const { pathToFileURL } = require('url');
+
+const [, , animationFile] = process.argv;
+
+if (!animationFile) {
+  console.error(
+    'Usage: node scripts/capture-animation-screenshot.js <animation-html-relative-path>'
+  );
+  console.error('Example: node scripts/capture-animation-screenshot.js css-animation.html');
+  process.exit(1);
+}
+
+const targetPath = path.resolve(
+  __dirname,
+  '..',
+  'assets',
+  'examples',
+  animationFile
+);
 
 (async () => {
+  try {
+    await fs.access(targetPath);
+  } catch (error) {
+    console.error(`Animation file not found at ${targetPath}`);
+    process.exit(1);
+  }
+
   const browser = await chromium.launch();
   const context = await browser.newContext({
     viewport: { width: 320, height: 240 },
   });
   const page = await context.newPage();
 
-  const targetPath = path.resolve(__dirname, '..', 'assets', 'example', 'css-animation.html');
-  const fileUrl = `file://${targetPath}`;
+  const fileUrl = pathToFileURL(targetPath).href;
   await page.goto(fileUrl, { waitUntil: 'load' });
 
   const client = await context.newCDPSession(page);
@@ -75,12 +100,17 @@ const path = require('path');
     }
   }, 4000);
 
+  const safeName = animationFile
+    .replace(/[\\/]/g, '-')
+    .replace(/\.html?$/i, '')
+    .trim();
+  const screenshotFilename = `${safeName || 'animation'}-4s.png`;
   const screenshotPath = path.resolve(
     __dirname,
     '..',
     'tmp',
     'output',
-    'css-animation-4s.png'
+    screenshotFilename
   );
   await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
 
