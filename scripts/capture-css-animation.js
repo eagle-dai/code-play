@@ -11,7 +11,7 @@ const path = require('path');
 
   const targetPath = path.resolve(__dirname, '..', 'assets', 'example', 'css-animation.html');
   const fileUrl = `file://${targetPath}`;
-  await page.goto(fileUrl);
+  await page.goto(fileUrl, { waitUntil: 'load' });
 
   const client = await context.newCDPSession(page);
 
@@ -30,6 +30,21 @@ const path = require('path');
   });
 
   await budgetExpired;
+
+  // Force CSS animations to their state at the 4-second mark. Some animations
+  // keep running indefinitely which can prevent the visual state from ever
+  // settling when using virtual time alone, so we explicitly seek them.
+  await page.evaluate((targetTimeMs) => {
+    const animations = document.getAnimations();
+    for (const animation of animations) {
+      try {
+        animation.currentTime = targetTimeMs;
+        animation.pause();
+      } catch (error) {
+        console.warn('Failed to fast-forward animation', error);
+      }
+    }
+  }, 4000);
 
   const screenshotPath = path.resolve(
     __dirname,
