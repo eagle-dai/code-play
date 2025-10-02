@@ -8,108 +8,156 @@ const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
+const HTML_FILE_PATTERN = /\.html?$/i;
 
-(async () => {
-  const entries = await fs.readdir(EXAMPLE_DIR, { withFileTypes: true });
-  const animationFiles = entries
-    .filter((entry) => entry.isFile() && /\.html?$/i.test(entry.name))
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b));
-
-  if (animationFiles.length === 0) {
-    console.error('No animation HTML files found in assets/example');
-    process.exit(1);
-  }
-
-  let browser;
-
+async function ensureDirectoryAvailable(directoryPath) {
   try {
-    browser = await chromium.launch();
+    await fs.access(directoryPath);
   } catch (error) {
-    const message = error?.message || '';
-
-    if (message.includes("Executable doesn't exist")) {
-      console.error(
-        'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        `Expected directory "${directoryPath}" to exist. Add animation examples under assets/example/.`
       );
-    } else if (message.includes('Host system is missing dependencies')) {
-      console.error(
-        'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
-      );
-    } else {
-      console.error('Failed to launch Chromium:', error);
     }
 
+    throw error;
+  }
+}
+
+async function collectAnimationFiles(directoryPath) {
+  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+
+  return entries
+    .filter((entry) => entry.isFile() && HTML_FILE_PATTERN.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+async function captureAnimationFile(browser, animationFile) {
+  const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
+  const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
+  const page = await context.newPage();
+
+  try {
+    const fileUrl = pathToFileURL(targetPath).href;
+    await page.goto(fileUrl, { waitUntil: 'load' });
+
+    const client = await context.newCDPSession(page);
+
+    await client.send('Emulation.setVirtualTimePolicy', {
+      policy: 'pauseIfNetworkFetchesPending',
+      budget: 0,
+    });
+
+    await client.send('Emulation.setVirtualTimePolicy', {
+      policy: 'pauseIfNetworkFetchesPending',
+      budget: TARGET_TIME_MS,
+    });
+
+    await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
+
+    // Force CSS animations to their state at the 4-second mark. Some animations
+    // keep running indefinitely which can prevent the visual state from ever
+    // settling when using virtual time alone, so we explicitly seek them.
+    await page.evaluate((targetTimeMs) => {
+      const animations = document.getAnimations();
+      for (const animation of animations) {
+        try {
+          animation.currentTime = targetTimeMs;
+          animation.pause();
+        } catch (error) {
+          console.warn('Failed to fast-forward animation', error);
+        }
+      }
+    }, TARGET_TIME_MS);
+
+    const safeName = animationFile
+      .replace(/[\\/]/g, '-')
+      .replace(HTML_FILE_PATTERN, '')
+      .trim();
+    const targetSeconds = Math.round(TARGET_TIME_MS / 1000);
+    const screenshotFilename = `${safeName || 'animation'}-${targetSeconds}s.png`;
+    const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
+
+    await page.screenshot({ path: screenshotPath });
+
+    return screenshotPath;
+  } finally {
+    await context.close();
+  }
+}
+
+function logChromiumLaunchFailure(error) {
+  const message = error?.message || '';
+
+  if (message.includes("Executable doesn't exist")) {
+    console.error(
+      'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
+    );
+  } else if (message.includes('Host system is missing dependencies')) {
+    console.error(
+      'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
+    );
+  } else {
+    console.error('Failed to launch Chromium:', error);
+  }
+}
+
+(async () => {
+  try {
+    await ensureDirectoryAvailable(EXAMPLE_DIR);
+  } catch (error) {
+    console.error(error.message);
     process.exitCode = 1;
     return;
   }
 
+  let animationFiles;
+  try {
+    animationFiles = await collectAnimationFiles(EXAMPLE_DIR);
+  } catch (error) {
+    console.error('Unable to read animation examples:', error);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (animationFiles.length === 0) {
+    console.error('No animation HTML files found in assets/example');
+    process.exitCode = 1;
+    return;
+  }
+
+  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+
+  let browser;
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    logChromiumLaunchFailure(error);
+    process.exitCode = 1;
+    return;
+  }
+
+  const failures = [];
+
   try {
     for (const animationFile of animationFiles) {
-      const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
-
       try {
-        await fs.access(targetPath);
+        const screenshotPath = await captureAnimationFile(browser, animationFile);
+        console.log(`Captured ${animationFile} -> ${screenshotPath}`);
       } catch (error) {
-        console.warn(`Skipping missing animation file at ${targetPath}`);
-        continue;
-      }
-
-      const context = await browser.newContext({
-        viewport: VIEWPORT_DIMENSIONS,
-      });
-      const page = await context.newPage();
-
-      try {
-        const fileUrl = pathToFileURL(targetPath).href;
-        await page.goto(fileUrl, { waitUntil: 'load' });
-
-        const client = await context.newCDPSession(page);
-
-        await client.send('Emulation.setVirtualTimePolicy', {
-          policy: 'pauseIfNetworkFetchesPending',
-          budget: 0,
-        });
-
-        await client.send('Emulation.setVirtualTimePolicy', {
-          policy: 'pauseIfNetworkFetchesPending',
-          budget: TARGET_TIME_MS,
-        });
-
-        await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
-
-        // Force CSS animations to their state at the 4-second mark. Some animations
-        // keep running indefinitely which can prevent the visual state from ever
-        // settling when using virtual time alone, so we explicitly seek them.
-        await page.evaluate((targetTimeMs) => {
-          const animations = document.getAnimations();
-          for (const animation of animations) {
-            try {
-              animation.currentTime = targetTimeMs;
-              animation.pause();
-            } catch (error) {
-              console.warn('Failed to fast-forward animation', error);
-            }
-          }
-        }, TARGET_TIME_MS);
-
-        const safeName = animationFile
-          .replace(/[\\/]/g, '-')
-          .replace(/\.html?$/i, '')
-          .trim();
-        const targetSeconds = Math.round(TARGET_TIME_MS / 1000);
-        const screenshotFilename = `${safeName || 'animation'}-${targetSeconds}s.png`;
-        const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
-        await fs.mkdir(OUTPUT_DIR, { recursive: true });
-
-        await page.screenshot({
-          path: screenshotPath,
-        });
-      } finally {
-        await context.close();
+        failures.push(animationFile);
+        console.error(`Failed to capture ${animationFile}:`, error);
       }
     }
   } finally {
     await browser.close();
+  }
+
+  if (failures.length > 0) {
+    console.error(
+      `Encountered errors while capturing ${failures.length} animation(s): ${failures.join(', ')}`
+    );
+    process.exitCode = 1;
   }
 })();
