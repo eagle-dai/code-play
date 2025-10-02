@@ -55,7 +55,7 @@
         border-radius: 50%;
         filter: blur(40px);
         opacity: 0;
-        animation: haloPulse 6s ease-in-out infinite;
+        animation: haloPulse 4s ease-in-out forwards;
       }
       #content {
         position: relative;
@@ -157,8 +157,7 @@
       }
 
       @keyframes haloPulse {
-        0%,
-        100% {
+        0% {
           opacity: 0;
           transform: scale(0.9) rotate(0deg);
         }
@@ -167,6 +166,10 @@
           transform: scale(1.05) rotate(35deg);
         }
         70% {
+          opacity: 0.4;
+          transform: scale(1) rotate(60deg);
+        }
+        100% {
           opacity: 0.4;
           transform: scale(1) rotate(60deg);
         }
@@ -188,6 +191,8 @@
     </div>
 
     <script>
+      const STOP_AT_MS = 4000;
+
       // Updates the timestamp to reflect elapsed milliseconds using rAF.
       const timestampElement = document.getElementById("timestampRaf");
 
@@ -204,7 +209,13 @@
 
       function updateTimestamp() {
         const elapsed = performance.now() - startTime;
-        timestampElement.textContent = formatElapsedTime(elapsed);
+        timestampElement.textContent = formatElapsedTime(
+          Math.min(elapsed, STOP_AT_MS)
+        );
+        if (elapsed >= STOP_AT_MS) {
+          return;
+        }
+
         requestAnimationFrame(updateTimestamp);
       }
 

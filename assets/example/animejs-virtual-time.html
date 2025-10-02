@@ -89,6 +89,8 @@
 
     <script src="./anime32.min.js"></script>
     <script>
+      const STOP_AT_MS = 4000;
+
       const tl = anime.timeline({
         easing: "easeOutQuad",
       });
@@ -120,7 +122,15 @@
         }
 
         const tick = () => {
-          updateRafTimestamp(performance.now() - timestampStart);
+          const elapsed = performance.now() - timestampStart;
+          updateRafTimestamp(elapsed);
+
+          if (elapsed >= STOP_AT_MS) {
+            cancelAnimationFrame(timestampAnimationFrameId);
+            timestampAnimationFrameId = null;
+            return;
+          }
+
           timestampAnimationFrameId = requestAnimationFrame(tick);
         };
 
@@ -137,7 +147,9 @@
       }
 
       function updateRafTimestamp(milliseconds) {
-        timestampRafElement.textContent = formatElapsedTime(milliseconds);
+        timestampRafElement.textContent = formatElapsedTime(
+          Math.min(milliseconds, STOP_AT_MS)
+        );
       }
 
       function getChromeVersion() {
@@ -163,6 +175,10 @@
       startFun();
 
       startTimestampTicker();
+      setTimeout(() => {
+        tl.pause();
+        tl.seek(STOP_AT_MS);
+      }, STOP_AT_MS);
 
       async function renderMain() {
         // show page
