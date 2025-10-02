@@ -60,14 +60,13 @@
       }
       #chromeVer,
       #date {
+        visibility: hidden;
         position: absolute;
         width: 60%;
         top: 75%;
         text-align: right;
         font: bold 2.5rem Arimo, sans-serif;
         color: lightcoral;
-        opacity: 0;
-        transform: translateX(-100%);
       }
       #date {
         top: 82%;
@@ -202,6 +201,9 @@
             opacity: [0, 1],
             duration: 2000,
             easing: "easeInOutElastic",
+            begin: function () {
+              tl.set(versionInfoTargets, { visibility: "visible" });
+            },
           },
           "-=1500"
         );

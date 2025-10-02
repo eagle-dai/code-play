@@ -56,19 +56,83 @@ async function captureAnimationFile(browser, animationFile) {
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
-    // Force CSS animations to their state at the 4-second mark. Some animations
-    // keep running indefinitely which can prevent the visual state from ever
-    // settling when using virtual time alone, so we explicitly seek them.
     await page.evaluate((targetTimeMs) => {
-      const animations = document.getAnimations();
-      for (const animation of animations) {
-        try {
-          animation.currentTime = targetTimeMs;
-          animation.pause();
-        } catch (error) {
-          console.warn('Failed to fast-forward animation', error);
+      const fastForwardCssAnimations = () => {
+        const animations = document.getAnimations();
+        for (const animation of animations) {
+          try {
+            animation.currentTime = targetTimeMs;
+            animation.pause();
+          } catch (error) {
+            console.warn('Failed to fast-forward animation', error);
+          }
         }
-      }
+      };
+
+      const fastForwardAnimeInstances = () => {
+        const animeGlobal = window.anime;
+        if (!animeGlobal || !Array.isArray(animeGlobal.running)) {
+          return;
+        }
+
+        const visited = new Set();
+
+        const finalizeInstance = (instance) => {
+          if (!instance || typeof instance !== 'object' || visited.has(instance)) {
+            return;
+          }
+
+          visited.add(instance);
+
+          if (typeof instance.seek === 'function') {
+            try {
+              instance.seek(targetTimeMs);
+            } catch (error) {
+              console.warn('Failed to seek anime.js instance', error);
+            }
+          } else if (typeof instance.tick === 'function') {
+            try {
+              instance.tick(targetTimeMs);
+            } catch (error) {
+              console.warn('Failed to tick anime.js instance', error);
+            }
+          }
+
+          if (typeof instance.pause === 'function') {
+            try {
+              instance.pause();
+            } catch (error) {
+              console.warn('Failed to pause anime.js instance', error);
+            }
+          }
+
+          if (
+            instance.params &&
+            typeof instance.params.begin === 'function' &&
+            !instance.began
+          ) {
+            try {
+              instance.params.begin.call(instance, instance);
+              instance.began = true;
+            } catch (error) {
+              console.warn('Failed to run anime.js begin callback', error);
+            }
+          }
+
+          if (Array.isArray(instance.children)) {
+            for (const child of instance.children) {
+              finalizeInstance(child);
+            }
+          }
+        };
+
+        for (const instance of animeGlobal.running.slice()) {
+          finalizeInstance(instance);
+        }
+      };
+
+      fastForwardCssAnimations();
+      fastForwardAnimeInstances();
     }, TARGET_TIME_MS);
 
     const safeName = animationFile
