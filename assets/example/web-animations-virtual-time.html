@@ -28,12 +28,21 @@
       .ball {
         width: 42px;
         height: 42px;
-        border-radius: 50%;
         position: absolute;
         left: 20px;
         top: 20px;
         background: radial-gradient(circle at 30% 30%, #facc15, #f97316);
         box-shadow: 0 6px 12px rgba(249, 115, 22, 0.6);
+        clip-path: polygon(
+          50% 0%,
+          78% 10%,
+          100% 38%,
+          84% 62%,
+          60% 100%,
+          36% 90%,
+          0% 62%,
+          22% 36%
+        );
       }
       .trail {
         position: absolute;
@@ -123,6 +132,33 @@
         fill: "forwards",
       });
 
+      const shapeAnimation = ball.animate(
+        [
+          {
+            clipPath:
+              "polygon(50% 0%, 78% 10%, 100% 38%, 84% 62%, 60% 100%, 36% 90%, 0% 62%, 22% 36%)",
+          },
+          {
+            clipPath:
+              "polygon(62% 6%, 90% 24%, 98% 50%, 88% 74%, 62% 94%, 38% 92%, 10% 70%, 14% 44%)",
+          },
+          {
+            clipPath:
+              "polygon(54% 4%, 86% 22%, 96% 50%, 82% 78%, 56% 96%, 32% 90%, 8% 64%, 18% 36%)",
+          },
+          {
+            clipPath:
+              "polygon(52% 6%, 85% 20%, 96% 50%, 85% 82%, 52% 94%, 18% 82%, 6% 50%, 18% 20%)",
+          },
+        ],
+        {
+          duration: STOP_AT_MS,
+          easing: "ease-in-out",
+          iterations: 1,
+          fill: "forwards",
+        }
+      );
+
       const colorAnimation = ball.animate(
         [
           { filter: "hue-rotate(0deg) saturate(120%)" },
@@ -156,12 +192,14 @@
 
       ballAnimation.startTime = document.timeline.currentTime;
       colorAnimation.startTime = ballAnimation.startTime;
+      shapeAnimation.startTime = ballAnimation.startTime;
       tilesAnimation.forEach((animation) => {
         animation.startTime = ballAnimation.startTime;
       });
 
       setTimeout(() => {
         ballAnimation.finish();
+        shapeAnimation.finish();
         colorAnimation.finish();
         tilesAnimation.forEach((animation) => animation.finish());
       }, STOP_AT_MS);
