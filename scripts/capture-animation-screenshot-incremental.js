@@ -61,6 +61,125 @@ async function captureAnimationFile(browser, animationFile) {
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: 'load' });
 
+    await page.evaluate(() => {
+      const animeGlobal = window.anime;
+      if (!animeGlobal || animeGlobal.__captureIncrementalPatched) {
+        return;
+      }
+
+      const trackedInstances = [];
+      const seenInstances = new WeakSet();
+
+      const registerInstance = (instance) => {
+        if (!instance || typeof instance !== 'object' || seenInstances.has(instance)) {
+          return;
+        }
+
+        seenInstances.add(instance);
+        trackedInstances.push(instance);
+
+        if (Array.isArray(instance.children)) {
+          for (const child of instance.children) {
+            registerInstance(child);
+          }
+        }
+      };
+
+      const registerCollection = (collection) => {
+        if (!collection) {
+          return;
+        }
+
+        for (const item of collection) {
+          registerInstance(item);
+        }
+      };
+
+      const runningInstances = animeGlobal.running;
+      if (Array.isArray(runningInstances) && !runningInstances.__captureIncrementalPatched) {
+        runningInstances.__captureIncrementalPatched = true;
+
+        const originalPush = runningInstances.push;
+        runningInstances.push = function (...args) {
+          registerCollection(args);
+          return originalPush.apply(this, args);
+        };
+
+        const originalUnshift = runningInstances.unshift;
+        runningInstances.unshift = function (...args) {
+          registerCollection(args);
+          return originalUnshift.apply(this, args);
+        };
+
+        const originalSplice = runningInstances.splice;
+        runningInstances.splice = function (start, deleteCount, ...items) {
+          if (items.length > 0) {
+            registerCollection(items);
+          }
+
+          const removed = originalSplice.call(this, start, deleteCount, ...items);
+          registerCollection(removed);
+          return removed;
+        };
+
+        const originalPop = runningInstances.pop;
+        runningInstances.pop = function () {
+          const removed = originalPop.call(this);
+          registerCollection([removed]);
+          return removed;
+        };
+
+        const originalShift = runningInstances.shift;
+        runningInstances.shift = function () {
+          const removed = originalShift.call(this);
+          registerCollection([removed]);
+          return removed;
+        };
+      }
+
+      registerCollection(runningInstances);
+
+      const originalTimeline = animeGlobal.timeline;
+      if (typeof originalTimeline === 'function' && !originalTimeline.__captureIncrementalPatched) {
+        const wrappedTimeline = function (...args) {
+          const instance = originalTimeline.apply(this, args);
+          registerInstance(instance);
+          return instance;
+        };
+
+        Object.setPrototypeOf(wrappedTimeline, Object.getPrototypeOf(originalTimeline));
+        wrappedTimeline.prototype = originalTimeline.prototype;
+        Object.assign(wrappedTimeline, originalTimeline);
+        Object.defineProperty(wrappedTimeline, '__captureIncrementalPatched', {
+          value: true,
+        });
+
+        animeGlobal.timeline = wrappedTimeline;
+      }
+
+      const originalAnimeFunction = animeGlobal;
+      if (typeof originalAnimeFunction === 'function' && !originalAnimeFunction.__captureIncrementalPatched) {
+        const wrappedAnime = function (...args) {
+          const instance = originalAnimeFunction.apply(this, args);
+          registerInstance(instance);
+          return instance;
+        };
+
+        Object.setPrototypeOf(wrappedAnime, Object.getPrototypeOf(originalAnimeFunction));
+        wrappedAnime.prototype = originalAnimeFunction.prototype;
+        Object.assign(wrappedAnime, originalAnimeFunction);
+        Object.defineProperty(wrappedAnime, '__captureIncrementalPatched', {
+          value: true,
+        });
+
+        window.anime = wrappedAnime;
+      }
+
+      window.__captureAnimeInstances = trackedInstances;
+      window.__captureRegisterAnimeInstance = registerInstance;
+      animeGlobal.__captureIncrementalPatched = true;
+    });
+
     const client = await context.newCDPSession(page);
 
     await client.send('Emulation.setVirtualTimePolicy', {
@@ -93,7 +212,7 @@ async function captureAnimationFile(browser, animationFile) {
 
       const fastForwardAnimeInstances = () => {
         const animeGlobal = window.anime;
-        if (!animeGlobal || !Array.isArray(animeGlobal.running)) {
+        if (!animeGlobal) {
           return;
         }
 
@@ -148,7 +267,36 @@ async function captureAnimationFile(browser, animationFile) {
           }
         };
 
-        for (const instance of animeGlobal.running.slice()) {
+        const trackedInstances = Array.isArray(window.__captureAnimeInstances)
+          ? window.__captureAnimeInstances
+          : [];
+        const registerInstance = window.__captureRegisterAnimeInstance;
+
+        if (typeof registerInstance === 'function') {
+          for (const instance of trackedInstances) {
+            if (Array.isArray(instance?.children)) {
+              for (const child of instance.children) {
+                registerInstance(child);
+              }
+            }
+          }
+
+          if (Array.isArray(animeGlobal.running)) {
+            for (const instance of animeGlobal.running) {
+              if (Array.isArray(instance?.children)) {
+                for (const child of instance.children) {
+                  registerInstance(child);
+                }
+              }
+            }
+          }
+        }
+
+        const runningInstances = Array.isArray(animeGlobal.running)
+          ? animeGlobal.running
+          : [];
+
+        for (const instance of [...trackedInstances, ...runningInstances]) {
           finalizeInstance(instance);
         }
       };
