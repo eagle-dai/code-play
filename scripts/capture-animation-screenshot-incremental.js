@@ -9,7 +9,6 @@ const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
-const ADDITIONAL_VIRTUAL_TIME_BUDGET_MS = 250;
 const HTML_FILE_PATTERN = /\.html?$/i;
 
 async function ensureDirectoryAvailable(directoryPath) {
@@ -75,10 +74,6 @@ async function captureAnimationFile(browser, animationFile) {
       const step = Math.min(remaining, VIRTUAL_TIME_STEP_MS);
       await advanceVirtualTime(client, step);
       elapsed += step;
-    }
-
-    if (ADDITIONAL_VIRTUAL_TIME_BUDGET_MS > 0) {
-      await advanceVirtualTime(client, ADDITIONAL_VIRTUAL_TIME_BUDGET_MS);
     }
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
