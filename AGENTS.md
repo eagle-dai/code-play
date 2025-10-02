@@ -16,7 +16,14 @@ These instructions apply to the entire repository.
 - Document in your testing summary which of the above commands were executed (or why they were not required).
 
 ## Documentation
+- Keep all documentation written entirely in English.
 - Update `README.md` whenever you change how contributors configure or run the capture workflow, or when defaults such as the fast-forward timestamp or output paths change.
+
+## Code Comments
+- Write all code comments in English.
+
+## Communication
+- When responding to user questions or requests, reply using the language used in the user's input.
 
 ## Git and PRs
 - Use Conventional Commits for commit messages (e.g., `feat: ...`, `fix: ...`).
