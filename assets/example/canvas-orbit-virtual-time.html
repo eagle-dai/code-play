@@ -59,6 +59,8 @@
       <div id="caption">ORBITAL PLAYGROUND</div>
     </div>
     <script>
+      const STOP_AT_MS = 4000;
+
       const canvas = document.getElementById("universe");
       const ctx = canvas.getContext("2d");
       const timestampElement = document.getElementById("timestampRaf");
@@ -77,7 +79,14 @@
 
       function updateTimestamp() {
         const elapsed = performance.now() - startTime;
-        timestampElement.textContent = formatElapsedTime(elapsed);
+        timestampElement.textContent = formatElapsedTime(
+          Math.min(elapsed, STOP_AT_MS)
+        );
+
+        if (elapsed >= STOP_AT_MS) {
+          return;
+        }
+
         requestAnimationFrame(updateTimestamp);
       }
 
@@ -167,10 +176,15 @@
       }
 
       function render() {
-        const elapsed = performance.now() - startTime;
+        const elapsed = Math.min(performance.now() - startTime, STOP_AT_MS);
         drawBackground(elapsed);
         drawStar(elapsed);
         drawPlanets(elapsed);
+
+        if (elapsed >= STOP_AT_MS) {
+          return;
+        }
+
         requestAnimationFrame(render);
       }
 

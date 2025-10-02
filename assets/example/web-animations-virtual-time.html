@@ -69,6 +69,8 @@
       <div id="timeLabel">00:00.000</div>
     </div>
     <script>
+      const STOP_AT_MS = 4000;
+
       const ball = document.querySelector(".ball");
       const trailContainer = document.querySelector(".trail");
       const timeLabel = document.getElementById("timeLabel");
@@ -87,7 +89,12 @@
 
       function updateTimestamp() {
         const elapsed = performance.now() - startTime;
-        timeLabel.textContent = formatElapsedTime(elapsed);
+        timeLabel.textContent = formatElapsedTime(Math.min(elapsed, STOP_AT_MS));
+
+        if (elapsed >= STOP_AT_MS) {
+          return;
+        }
+
         requestAnimationFrame(updateTimestamp);
       }
 
@@ -110,9 +117,10 @@
       ];
 
       const ballAnimation = ball.animate(travelPath, {
-        duration: 4000,
+        duration: STOP_AT_MS,
         easing: "ease-in-out",
-        iterations: Infinity,
+        iterations: 1,
+        fill: "forwards",
       });
 
       const colorAnimation = ball.animate(
@@ -123,8 +131,9 @@
           { filter: "hue-rotate(360deg) saturate(140%)" },
         ],
         {
-          duration: 4000,
-          iterations: Infinity,
+          duration: STOP_AT_MS,
+          iterations: 1,
+          fill: "forwards",
         }
       );
 
@@ -138,7 +147,8 @@
           {
             duration: 1600,
             delay: index * 60,
-            iterations: Infinity,
+            iterations: 1,
+            fill: "forwards",
             easing: "ease-in-out",
           }
         )
@@ -149,6 +159,12 @@
       tilesAnimation.forEach((animation) => {
         animation.startTime = ballAnimation.startTime;
       });
+
+      setTimeout(() => {
+        ballAnimation.finish();
+        colorAnimation.finish();
+        tilesAnimation.forEach((animation) => animation.finish());
+      }, STOP_AT_MS);
     </script>
   </body>
 </html>
