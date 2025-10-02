@@ -26,9 +26,9 @@ Follow these steps to configure your environment and run the script:
    On minimal Linux environments this installs system libraries that Chromium needs. Skip this step on macOS/Windows.
 5. **Run the capture script:**
    ```bash
-   npm run capture:animation -- css-animation.html
+   npm run capture:animation
    ```
-   Replace `css-animation.html` with the relative path of the animation file inside `assets/example/`. The screenshot will be written to `tmp/output/<animation-name>-4s.png`.
+   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
@@ -38,6 +38,6 @@ The development container used for this check successfully followed the steps ab
 
 1. Installed Node dependencies with `npm install`.
 2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured a representative animation screenshot with `npm run capture:animation -- css-animation.html`, which produced `tmp/output/css-animation-4s.png`.
+3. Captured the animation set with `npm run capture:animation`, which produced PNG files such as `tmp/output/css-animation-4s.png` and `tmp/output/web-animations-virtual-time-4s.png`.
 
 These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.
