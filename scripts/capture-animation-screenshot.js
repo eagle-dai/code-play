@@ -4,10 +4,13 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 const TARGET_TIME_MS = 4_000;
+const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
+const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
+const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 
 (async () => {
-  const exampleDir = path.resolve(__dirname, '..', 'assets', 'example');
-  const entries = await fs.readdir(exampleDir, { withFileTypes: true });
+  const entries = await fs.readdir(EXAMPLE_DIR, { withFileTypes: true });
   const animationFiles = entries
     .filter((entry) => entry.isFile() && /\.html?$/i.test(entry.name))
     .map((entry) => entry.name)
@@ -43,7 +46,7 @@ const TARGET_TIME_MS = 4_000;
 
   try {
     for (const animationFile of animationFiles) {
-      const targetPath = path.resolve(exampleDir, animationFile);
+      const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
 
       try {
         await fs.access(targetPath);
@@ -53,7 +56,7 @@ const TARGET_TIME_MS = 4_000;
       }
 
       const context = await browser.newContext({
-        viewport: { width: 320, height: 240 },
+        viewport: VIEWPORT_DIMENSIONS,
       });
       const page = await context.newPage();
 
@@ -73,7 +76,7 @@ const TARGET_TIME_MS = 4_000;
           budget: TARGET_TIME_MS,
         });
 
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
         // Force CSS animations to their state at the 4-second mark. Some animations
         // keep running indefinitely which can prevent the visual state from ever
@@ -96,14 +99,8 @@ const TARGET_TIME_MS = 4_000;
           .trim();
         const targetSeconds = Math.round(TARGET_TIME_MS / 1000);
         const screenshotFilename = `${safeName || 'animation'}-${targetSeconds}s.png`;
-        const screenshotPath = path.resolve(
-          __dirname,
-          '..',
-          'tmp',
-          'output',
-          screenshotFilename
-        );
-        await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
+        const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
+        await fs.mkdir(OUTPUT_DIR, { recursive: true });
 
         await page.screenshot({
           path: screenshotPath,
