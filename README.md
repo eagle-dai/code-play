@@ -2,9 +2,9 @@
 
 This repository contains small web examples and automation helpers.
 
-## Running the animation capture scripts
+## Running the animation capture script
 
-The `scripts/capture-animation-screenshot.js` script uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. An alternative implementation, `scripts/capture-animation-screenshot-incremental.js`, advances virtual time in smaller steps before taking the same 4-second capture.
+The repository provides `scripts/capture-animation-screenshot-incremental.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the 4-second capture, which works reliably even when animations rely on incremental state updates.
 
 Follow these steps to configure your environment and run the script:
 
@@ -26,16 +26,9 @@ Follow these steps to configure your environment and run the script:
    On minimal Linux environments this installs system libraries that Chromium needs. Skip this step on macOS/Windows.
 5. **Run the capture script:**
    ```bash
-   npm run capture:animation
-   ```
-   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
-
-   To run the incremental stepping variant instead, execute:
-
-   ```bash
    npm run capture:animation:incremental
    ```
-   This version gradually progresses virtual time in 250 ms slices before taking the 4-second screenshot, which can help when animations rely on incremental state updates.
+   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
@@ -45,6 +38,6 @@ The development container used for this check successfully followed the steps ab
 
 1. Installed Node dependencies with `npm install`.
 2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured the animation set with `npm run capture:animation`, which produced PNG files such as `tmp/output/css-animation-4s.png` and `tmp/output/web-animations-virtual-time-4s.png`.
+3. Captured the animation set with `npm run capture:animation:incremental`, which produced PNG files such as `tmp/output/css-animation-4s.png` and `tmp/output/web-animations-virtual-time-4s.png`.
 
 These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.

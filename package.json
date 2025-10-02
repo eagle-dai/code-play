@@ -4,7 +4,6 @@
   "description": "Playwright helper scripts for the code-play examples",
   "private": true,
   "scripts": {
-    "capture:animation": "node scripts/capture-animation-screenshot.js",
     "capture:animation:incremental": "node scripts/capture-animation-screenshot-incremental.js"
   },
   "dependencies": {
