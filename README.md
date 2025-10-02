@@ -2,9 +2,9 @@
 
 This repository contains small web examples and automation helpers.
 
-## Running the animation capture script
+## Running the animation capture scripts
 
-The `scripts/capture-animation-screenshot.js` script uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/example/` and save a screenshot.
+The `scripts/capture-animation-screenshot.js` script uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. An alternative implementation, `scripts/capture-animation-screenshot-incremental.js`, advances virtual time in smaller steps before taking the same 4-second capture.
 
 Follow these steps to configure your environment and run the script:
 
@@ -29,6 +29,13 @@ Follow these steps to configure your environment and run the script:
    npm run capture:animation
    ```
    The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
+
+   To run the incremental stepping variant instead, execute:
+
+   ```bash
+   npm run capture:animation:incremental
+   ```
+   This version gradually progresses virtual time in 250 ms slices before taking the 4-second screenshot, which can help when animations rely on incremental state updates.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
