@@ -19,13 +19,18 @@ Follow these steps to configure your environment and run the script:
    npx playwright install chromium
    ```
    The script launches Chromium to render the animation.
-4. **Run the capture script:**
+4. **Install Chromium's Linux dependencies (if applicable):**
    ```bash
-   npm run capture:animation -- css-animation.html
+   npx playwright install-deps
    ```
-   Replace `css-animation.html` with the relative path of the animation file inside `assets/example/`. The screenshot will be written to `tmp/output/<animation-name>-4s.png`.
+   On minimal Linux environments this installs system libraries that Chromium needs. Skip this step on macOS/Windows.
+5. **Run the capture script:**
+   ```bash
+   npm run capture:animation
+   ```
+   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
 
-If you are running in a minimal Linux environment, you may also need system libraries required by Chromium. Playwright documents the list of packages for each distribution in its [installation guide](https://playwright.dev/docs/intro#system-requirements).
+If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
 ## Environment setup verification
 
@@ -33,6 +38,6 @@ The development container used for this check successfully followed the steps ab
 
 1. Installed Node dependencies with `npm install`.
 2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured a representative animation screenshot with `npm run capture:animation -- css-animation.html`, which produced `tmp/output/css-animation-4s.png`.
+3. Captured the animation set with `npm run capture:animation`, which produced PNG files such as `tmp/output/css-animation-4s.png` and `tmp/output/web-animations-virtual-time-4s.png`.
 
 These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.
