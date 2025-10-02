@@ -19,13 +19,18 @@ Follow these steps to configure your environment and run the script:
    npx playwright install chromium
    ```
    The script launches Chromium to render the animation.
-4. **Run the capture script:**
+4. **Install Chromium's Linux dependencies (if applicable):**
+   ```bash
+   npx playwright install-deps
+   ```
+   On minimal Linux environments this installs system libraries that Chromium needs. Skip this step on macOS/Windows.
+5. **Run the capture script:**
    ```bash
    npm run capture:animation -- css-animation.html
    ```
    Replace `css-animation.html` with the relative path of the animation file inside `assets/example/`. The screenshot will be written to `tmp/output/<animation-name>-4s.png`.
 
-If you are running in a minimal Linux environment, you may also need system libraries required by Chromium. Playwright documents the list of packages for each distribution in its [installation guide](https://playwright.dev/docs/intro#system-requirements).
+If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
 ## Environment setup verification
 

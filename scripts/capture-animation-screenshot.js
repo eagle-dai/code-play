@@ -18,7 +18,28 @@ const TARGET_TIME_MS = 4_000;
     process.exit(1);
   }
 
-  const browser = await chromium.launch();
+  let browser;
+
+  try {
+    browser = await chromium.launch();
+  } catch (error) {
+    const message = error?.message || '';
+
+    if (message.includes("Executable doesn't exist")) {
+      console.error(
+        'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
+      );
+    } else if (message.includes('Host system is missing dependencies')) {
+      console.error(
+        'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
+      );
+    } else {
+      console.error('Failed to launch Chromium:', error);
+    }
+
+    process.exitCode = 1;
+    return;
+  }
 
   try {
     for (const animationFile of animationFiles) {
