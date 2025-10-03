@@ -64,7 +64,13 @@
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
-        background: rgba(15, 23, 42, 0.4);
+        background:
+          radial-gradient(
+            circle at 30% 30%,
+            rgba(148, 163, 184, 0.55),
+            rgba(30, 64, 175, 0.4)
+          ),
+          rgba(15, 23, 42, 0.25);
       }
 
       video {
@@ -72,6 +78,12 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        opacity: 0;
+        transition: opacity 1s ease;
+      }
+
+      video.is-visible {
+        opacity: 1;
       }
 
       p {
@@ -86,7 +98,7 @@
   <body>
     <div id="pages">
       <div id="timestampRaf">00:00.000</div>
-      <h1>Cat Loop</h1>
+      <h1>VIDEO TEST</h1>
       <div class="video-frame">
         <video id="catVideo" muted playsinline preload="auto">
           <source src="video/test_video_cat.mp4" type="video/mp4" />
@@ -99,6 +111,8 @@
     <script>
       const START_DELAY_MS = 1000;
       const STOP_AT_SECONDS = 4;
+      const STOP_AT_MILLISECONDS = STOP_AT_SECONDS * 1000;
+      const PLAYBACK_STOP_SECONDS = 3;
 
       const video = document.getElementById("catVideo");
       const timestampElement = document.getElementById("timestampRaf");
@@ -106,6 +120,7 @@
       let startTimeoutId = null;
       let rafId = null;
       let hasStopped = false;
+      let timerStartTimestamp = null;
 
       function formatElapsedTime(milliseconds) {
         const totalMilliseconds = Math.max(0, Math.floor(milliseconds));
@@ -116,13 +131,38 @@
         return `${minutes}:${seconds}.${ms}`;
       }
 
-      function updateTimestamp() {
-        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
-        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
-
-        if (!video.paused && !video.ended && !hasStopped) {
-          rafId = requestAnimationFrame(updateTimestamp);
+      function finalizeStop() {
+        if (hasStopped) {
+          return;
         }
+
+        hasStopped = true;
+        video.pause();
+        timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
+        cancelAnimation();
+      }
+
+      function tick(now) {
+        if (timerStartTimestamp === null) {
+          timerStartTimestamp = now;
+        }
+
+        const elapsedMilliseconds = now - timerStartTimestamp;
+
+        if (elapsedMilliseconds >= STOP_AT_MILLISECONDS) {
+          finalizeStop();
+          return;
+        }
+
+        timestampElement.textContent = formatElapsedTime(elapsedMilliseconds);
+        rafId = requestAnimationFrame(tick);
+      }
+
+      function startTimer() {
+        cancelAnimation();
+        timerStartTimestamp = performance.now();
+        timestampElement.textContent = formatElapsedTime(0);
+        rafId = requestAnimationFrame(tick);
       }
 
       function cancelAnimation() {
@@ -136,7 +176,9 @@
         video.pause();
         video.currentTime = 0;
         hasStopped = false;
-        timestampElement.textContent = formatElapsedTime(0);
+        startTimer();
+
+        video.classList.remove("is-visible");
 
         if (startTimeoutId !== null) {
           clearTimeout(startTimeoutId);
@@ -144,6 +186,7 @@
 
         startTimeoutId = window.setTimeout(() => {
           startTimeoutId = null;
+          video.classList.add("is-visible");
           video.play().catch(() => {
             // Intentionally left empty: autoplay might require user interaction in some browsers.
           });
@@ -161,23 +204,9 @@
         handleLoadedMetadata();
       }
 
-      video.addEventListener("play", () => {
-        hasStopped = false;
-        cancelAnimation();
-        rafId = requestAnimationFrame(updateTimestamp);
-      });
-
-      video.addEventListener("pause", () => {
-        cancelAnimation();
-        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
-        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
-      });
-
       video.addEventListener("timeupdate", () => {
-        if (!hasStopped && video.currentTime >= STOP_AT_SECONDS) {
-          hasStopped = true;
-          video.currentTime = STOP_AT_SECONDS;
-          video.pause();
+        if (video.currentTime >= PLAYBACK_STOP_SECONDS) {
+          finalizeStop();
         }
       });
     </script>
