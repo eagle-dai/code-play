@@ -3,17 +3,33 @@ const fs = require('fs/promises');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
+// Core capture settings. These defaults are chosen to match the reference
+// screenshots documented in README.md, but each constant can be tuned for
+// other animation suites without touching the rest of the workflow.
 const TARGET_TIME_MS = 4_000;
 const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+
+// Real-time pre-roll before virtual time is enabled. Some animation frameworks
+// perform asynchronous preparation that only kicks in after a few
+// requestAnimationFrame ticks; the wait and RAF minimum help cover those
+// bootstraps. The upper bound prevents pathological pages from stalling the
+// capture forever.
 const MIN_INITIAL_REALTIME_WAIT_MS = 120;
 const MAX_INITIAL_REALTIME_WAIT_MS = 1_000;
 const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
+
+// Once the target virtual timestamp is reached, give the page a final moment to
+// settle so mutation observers or microtasks triggered by the last frame can
+// complete before taking the screenshot.
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
 
+// Patches run before any page script executes. Each entry registers shims for a
+// specific animation framework so that virtual-time fast forwarding matches the
+// observable behavior of real-time playback.
 const FRAMEWORK_PATCHES = [
   {
     name: 'anime.js lifecycle bootstrap hooks',
@@ -89,6 +105,9 @@ const FRAMEWORK_PATCHES = [
         const originalReset = typeof instance.reset === 'function' ? instance.reset : null;
         if (originalReset) {
           instance.reset = function patchedReset() {
+            // Resetting an anime.js timeline reinstates child animations. Those
+            // children need to be re-patched so any subsequent virtual-time
+            // seeks continue to respect the bootstrap shim.
             const result = originalReset.apply(this, arguments);
             if (Array.isArray(instance.children)) {
               instance.children.forEach(patchInstance);
@@ -100,6 +119,9 @@ const FRAMEWORK_PATCHES = [
         if (typeof instance.add === 'function') {
           const originalAdd = instance.add;
           instance.add = function patchedAdd() {
+            // Adding child animations at runtime should immediately inherit the
+            // patched seek behavior. Recurse after the native call so we only
+            // touch the newly inserted nodes.
             const result = originalAdd.apply(this, arguments);
             if (Array.isArray(instance.children)) {
               instance.children.forEach(patchInstance);
@@ -113,6 +135,10 @@ const FRAMEWORK_PATCHES = [
 
       const wrapAnimeFactory = (factory) => {
         const wrapped = function wrappedAnime() {
+          // Every anime.js invocation yields a timeline/animation object. Patch
+          // the returned instance before exposing it to user code so that any
+          // immediate `seek()`/`pause()` calls inside page scripts benefit from
+          // the bootstrap.
           const instance = factory.apply(this, arguments);
           return patchInstance(instance);
         };
@@ -132,6 +158,9 @@ const FRAMEWORK_PATCHES = [
             enumerable: true,
             writable: true,
             value: function timelineWrapper() {
+              // `anime.timeline()` constructs nested timelines without routing
+              // through the main factory function. Mirror the same patch step
+              // so the bootstrap logic remains consistent across APIs.
               const instance = factory.timeline.apply(factory, arguments);
               return patchInstance(instance);
             },
@@ -191,6 +220,8 @@ const FRAMEWORK_PATCHES = [
         hasInitialValue = false;
       }
 
+      // Install the interceptor immediately so any subsequent inline scripts
+      // that assign to `window.anime` receive the wrapped factory.
       installAnimeInterceptor(hasInitialValue ? initialValue : undefined);
     },
   },
