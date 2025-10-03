@@ -11,7 +11,10 @@ callbacks, so fast-forwarding directly to 4 seconds used to leave the footer
 elements hidden in `animejs-virtual-time.html`.
 
 To keep the automation generic while matching real playback, the script now
-injects a lightweight interceptor before any animation code executes:
+ships with a pluggable "framework patch" registry. Each patch is injected
+before page scripts execute and activates only when its target framework is
+present. The current registry contains a lightweight anime.js interceptor that
+restores missing lifecycle hooks:
 
 * A `requestAnimationFrame` probe counts initial ticks so that the automation
   waits for the first frame of real time before seizing virtual time control.
