@@ -72,6 +72,12 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        opacity: 0;
+        transition: opacity 1s ease;
+      }
+
+      video.is-visible {
+        opacity: 1;
       }
 
       p {
@@ -86,7 +92,7 @@
   <body>
     <div id="pages">
       <div id="timestampRaf">00:00.000</div>
-      <h1>Cat Loop</h1>
+      <h1>VIDEO TEST</h1>
       <div class="video-frame">
         <video id="catVideo" muted playsinline preload="auto">
           <source src="video/test_video_cat.mp4" type="video/mp4" />
@@ -166,12 +172,15 @@
         hasStopped = false;
         startTimer();
 
+        video.classList.remove("is-visible");
+
         if (startTimeoutId !== null) {
           clearTimeout(startTimeoutId);
         }
 
         startTimeoutId = window.setTimeout(() => {
           startTimeoutId = null;
+          video.classList.add("is-visible");
           video.play().catch(() => {
             // Intentionally left empty: autoplay might require user interaction in some browsers.
           });
