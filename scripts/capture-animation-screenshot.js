@@ -9,6 +9,7 @@ const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
+const MEDIA_READY_TIMEOUT_MS = 5_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
 
 async function ensureDirectoryAvailable(directoryPath) {
@@ -52,6 +53,59 @@ async function advanceVirtualTime(client, budgetMs) {
   });
 }
 
+async function waitForMediaMetadata(page) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const videos = Array.from(document.querySelectorAll('video'));
+        if (videos.length === 0) {
+          return true;
+        }
+
+        return videos.every((video) => video.readyState >= HTMLMediaElement.HAVE_METADATA);
+      },
+      { timeout: MEDIA_READY_TIMEOUT_MS }
+    );
+  } catch (error) {
+    // Continue even if metadata never loads; individual seek operations handle failures.
+  }
+}
+
+async function freezeDocumentState(page, targetTimeMs) {
+  await page.evaluate(async (targetMs) => {
+    const targetSeconds = targetMs / 1000;
+
+    const animations = document.getAnimations();
+    for (const animation of animations) {
+      try {
+        animation.currentTime = targetMs;
+        animation.pause();
+      } catch (error) {
+        console.warn('Failed to fast-forward animation', error);
+      }
+    }
+
+    const videos = Array.from(document.querySelectorAll('video'));
+    for (const video of videos) {
+      const duration = Number.isFinite(video.duration) ? video.duration : NaN;
+      const desiredSeconds = Number.isFinite(duration)
+        ? Math.min(targetSeconds, duration)
+        : targetSeconds;
+
+      try {
+        video.currentTime = desiredSeconds;
+      } catch (error) {
+        console.warn('Failed to seek video to target time', error);
+        continue;
+      }
+
+      video.pause();
+      video.dispatchEvent(new Event('timeupdate'));
+      video.dispatchEvent(new Event('pause'));
+    }
+  }, targetTimeMs);
+}
+
 async function captureAnimationFile(browser, animationFile) {
   const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
   const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
@@ -60,6 +114,8 @@ async function captureAnimationFile(browser, animationFile) {
   try {
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: 'load' });
+
+    await waitForMediaMetadata(page);
 
     const client = await context.newCDPSession(page);
 
@@ -78,17 +134,7 @@ async function captureAnimationFile(browser, animationFile) {
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
-    await page.evaluate((targetTimeMs) => {
-      const animations = document.getAnimations();
-      for (const animation of animations) {
-        try {
-          animation.currentTime = targetTimeMs;
-          animation.pause();
-        } catch (error) {
-          console.warn('Failed to fast-forward animation', error);
-        }
-      }
-    }, TARGET_TIME_MS);
+    await freezeDocumentState(page, TARGET_TIME_MS);
 
     const safeName = animationFile
       .replace(/[\\/]/g, '-')
