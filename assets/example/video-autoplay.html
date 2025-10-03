@@ -118,6 +118,18 @@
         return `${minutes}:${seconds}.${ms}`;
       }
 
+      function finalizeStop() {
+        if (hasStopped) {
+          return;
+        }
+
+        hasStopped = true;
+        video.pause();
+        video.currentTime = STOP_AT_SECONDS;
+        timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
+        cancelAnimation();
+      }
+
       function tick(now) {
         if (timerStartTimestamp === null) {
           timerStartTimestamp = now;
@@ -126,8 +138,7 @@
         const elapsedMilliseconds = now - timerStartTimestamp;
 
         if (elapsedMilliseconds >= STOP_AT_MILLISECONDS) {
-          timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
-          cancelAnimation();
+          finalizeStop();
           return;
         }
 
@@ -179,12 +190,8 @@
       }
 
       video.addEventListener("timeupdate", () => {
-        if (!hasStopped && video.currentTime >= STOP_AT_SECONDS) {
-          hasStopped = true;
-          video.currentTime = STOP_AT_SECONDS;
-          video.pause();
-          timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
-          cancelAnimation();
+        if (video.currentTime >= STOP_AT_SECONDS) {
+          finalizeStop();
         }
       });
     </script>
