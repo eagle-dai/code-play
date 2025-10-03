@@ -99,6 +99,7 @@
     <script>
       const START_DELAY_MS = 1000;
       const STOP_AT_SECONDS = 4;
+      const STOP_AT_MILLISECONDS = STOP_AT_SECONDS * 1000;
 
       const video = document.getElementById("catVideo");
       const timestampElement = document.getElementById("timestampRaf");
@@ -106,6 +107,7 @@
       let startTimeoutId = null;
       let rafId = null;
       let hasStopped = false;
+      let timerStartTimestamp = null;
 
       function formatElapsedTime(milliseconds) {
         const totalMilliseconds = Math.max(0, Math.floor(milliseconds));
@@ -116,13 +118,28 @@
         return `${minutes}:${seconds}.${ms}`;
       }
 
-      function updateTimestamp() {
-        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
-        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
-
-        if (!video.paused && !video.ended && !hasStopped) {
-          rafId = requestAnimationFrame(updateTimestamp);
+      function tick(now) {
+        if (timerStartTimestamp === null) {
+          timerStartTimestamp = now;
         }
+
+        const elapsedMilliseconds = now - timerStartTimestamp;
+
+        if (elapsedMilliseconds >= STOP_AT_MILLISECONDS) {
+          timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
+          cancelAnimation();
+          return;
+        }
+
+        timestampElement.textContent = formatElapsedTime(elapsedMilliseconds);
+        rafId = requestAnimationFrame(tick);
+      }
+
+      function startTimer() {
+        cancelAnimation();
+        timerStartTimestamp = performance.now();
+        timestampElement.textContent = formatElapsedTime(0);
+        rafId = requestAnimationFrame(tick);
       }
 
       function cancelAnimation() {
@@ -136,7 +153,7 @@
         video.pause();
         video.currentTime = 0;
         hasStopped = false;
-        timestampElement.textContent = formatElapsedTime(0);
+        startTimer();
 
         if (startTimeoutId !== null) {
           clearTimeout(startTimeoutId);
@@ -161,23 +178,13 @@
         handleLoadedMetadata();
       }
 
-      video.addEventListener("play", () => {
-        hasStopped = false;
-        cancelAnimation();
-        rafId = requestAnimationFrame(updateTimestamp);
-      });
-
-      video.addEventListener("pause", () => {
-        cancelAnimation();
-        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
-        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
-      });
-
       video.addEventListener("timeupdate", () => {
         if (!hasStopped && video.currentTime >= STOP_AT_SECONDS) {
           hasStopped = true;
           video.currentTime = STOP_AT_SECONDS;
           video.pause();
+          timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
+          cancelAnimation();
         }
       });
     </script>
