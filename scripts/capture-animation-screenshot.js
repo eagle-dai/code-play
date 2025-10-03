@@ -10,6 +10,7 @@ const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
+const MEDIA_AUTOPLAY_TIMEOUT_MS = 2_000;
 const CHROMIUM_LAUNCH_OPTIONS = {
   // Allow media elements (e.g., videos) to autoplay without a prior user gesture.
   args: ['--autoplay-policy=no-user-gesture-required'],
@@ -67,6 +68,8 @@ async function captureAnimationFile(browser, animationFile) {
 
     const client = await context.newCDPSession(page);
 
+    await ensureMediaAutoplay(page, client);
+
     await client.send('Emulation.setVirtualTimePolicy', {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
@@ -90,6 +93,39 @@ async function captureAnimationFile(browser, animationFile) {
           animation.pause();
         } catch (error) {
           console.warn('Failed to fast-forward animation', error);
+        }
+      }
+
+      const targetSeconds = targetTimeMs / 1000;
+      const mediaElements = document.querySelectorAll('audio, video');
+      for (const media of mediaElements) {
+        try {
+          const rawDuration = Number(media.duration);
+          const hasFiniteDuration = Number.isFinite(rawDuration) && rawDuration > 0;
+          const clampedTime = hasFiniteDuration
+            ? Math.min(rawDuration, targetSeconds)
+            : targetSeconds;
+
+          if (!Number.isNaN(clampedTime)) {
+            media.currentTime = clampedTime;
+          }
+
+          const dispatch = (type) => {
+            try {
+              media.dispatchEvent(new Event(type));
+            } catch (eventError) {
+              console.warn(`Failed to dispatch ${type} event for media element`, eventError);
+            }
+          };
+
+          if (media.paused) {
+            dispatch('timeupdate');
+            dispatch('pause');
+          } else {
+            media.pause();
+          }
+        } catch (error) {
+          console.warn('Failed to fast-forward media element', error);
         }
       }
     }, TARGET_TIME_MS);
@@ -123,6 +159,101 @@ function logChromiumLaunchFailure(error) {
     );
   } else {
     console.error('Failed to launch Chromium:', error);
+  }
+}
+
+async function ensureMediaAutoplay(page, client) {
+  const initialAttempt = await requestMediaPlayback(page, MEDIA_AUTOPLAY_TIMEOUT_MS);
+
+  if (!initialAttempt.attempted || initialAttempt.blocked.length === 0) {
+    return;
+  }
+
+  await synthesizeUserGesture(client);
+
+  const retryAttempt = await requestMediaPlayback(page, MEDIA_AUTOPLAY_TIMEOUT_MS);
+  if (retryAttempt.blocked.length > 0) {
+    const details = retryAttempt.blocked
+      .map((entry) => {
+        const identifier = entry.id ? `#${entry.id}` : '';
+        return `${entry.tag}${identifier}`;
+      })
+      .join(', ');
+
+    console.warn(
+      `Autoplay restrictions prevented playback for ${retryAttempt.blocked.length} media element(s): ${details}`
+    );
+  }
+}
+
+async function requestMediaPlayback(page, timeoutMs) {
+  return page.evaluate(async (playbackTimeoutMs) => {
+    const mediaElements = Array.from(document.querySelectorAll('audio, video'));
+
+    const blocked = [];
+
+    const withTimeout = (promise, limit) =>
+      new Promise((resolve, reject) => {
+        const timer = window.setTimeout(() => {
+          reject(new Error(`play() timed out after ${limit} ms`));
+        }, limit);
+
+        Promise.resolve(promise)
+          .then((value) => {
+            window.clearTimeout(timer);
+            resolve(value);
+          })
+          .catch((error) => {
+            window.clearTimeout(timer);
+            reject(error);
+          });
+      });
+
+    for (const media of mediaElements) {
+      try {
+        if (media.tagName === 'VIDEO' && media.muted !== true) {
+          media.muted = true;
+        }
+
+        media.autoplay = true;
+        const playPromise = media.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          await withTimeout(playPromise, playbackTimeoutMs);
+        }
+      } catch (error) {
+        blocked.push({
+          tag: media.tagName.toLowerCase(),
+          id: media.id || null,
+          error: error?.message || String(error),
+        });
+      }
+    }
+
+    return { attempted: mediaElements.length > 0, blocked };
+  }, timeoutMs);
+}
+
+async function synthesizeUserGesture(client) {
+  try {
+    await client.send('Page.bringToFront');
+
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: 0,
+      y: 0,
+      button: 'left',
+      clickCount: 1,
+    });
+
+    await client.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: 0,
+      y: 0,
+      button: 'left',
+      clickCount: 1,
+    });
+  } catch (error) {
+    console.warn('Failed to synthesize user gesture for media playback', error);
   }
 }
 
