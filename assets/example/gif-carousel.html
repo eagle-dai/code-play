@@ -163,14 +163,17 @@
 
       function startCarousel() {
         carouselTimerId = setInterval(() => {
-          const nextIndex = (activeIndex + 1) % images.length;
-          showSlide(nextIndex);
+          const projectedIntervals = completedIntervals + 1;
 
-          completedIntervals += 1;
-          if (completedIntervals * INTERVAL_MS >= STOP_AT_MS && carouselTimerId !== null) {
+          if (projectedIntervals * INTERVAL_MS >= STOP_AT_MS && carouselTimerId !== null) {
             clearInterval(carouselTimerId);
             carouselTimerId = null;
+            return;
           }
+
+          const nextIndex = (activeIndex + 1) % images.length;
+          showSlide(nextIndex);
+          completedIntervals = projectedIntervals;
         }, INTERVAL_MS);
       }
 
