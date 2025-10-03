@@ -1,7 +1,185 @@
-        font-size: 3px;
-        width: 160px;
-        height: 120px;
-        font: bold 2.2rem "Arimo", sans-serif;
-        font-size: 2rem;
-        width: 60%;
-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
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>video-autoplay</title>
+    <style>
+      :root {
+        background: #ccc;
+      }
+
+      html {
+        font-size: 4px;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Arimo", sans-serif;
+      }
+
+      #pages {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 320px;
+        height: 240px;
+        overflow: hidden;
+        contain: strict;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        box-sizing: border-box;
+        background: linear-gradient(145deg, #0f172a, #1f2937);
+        color: #f8fafc;
+        border-radius: 18px;
+      }
+
+      #timestampRaf {
+        position: absolute;
+        top: 5%;
+        left: 5%;
+        font: bold 3rem "Arimo", sans-serif;
+        letter-spacing: 0.2rem;
+        color: #f8fafc;
+        background: rgba(15, 23, 42, 0.65);
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 5.5rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .video-frame {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
+        background: rgba(15, 23, 42, 0.4);
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      p {
+        margin: 0;
+        font-size: 3rem;
+        color: rgba(241, 245, 249, 0.8);
+        text-align: center;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pages">
+      <div id="timestampRaf">00:00.000</div>
+      <h1>Cat Loop</h1>
+      <div class="video-frame">
+        <video id="catVideo" muted playsinline preload="auto">
+          <source src="video/test_video_cat.mp4" type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <p>Video waits 1s, plays until 4s, then pauses.</p>
+    </div>
+
+    <script>
+      const START_DELAY_MS = 1000;
+      const STOP_AT_SECONDS = 4;
+
+      const video = document.getElementById("catVideo");
+      const timestampElement = document.getElementById("timestampRaf");
+
+      let startTimeoutId = null;
+      let rafId = null;
+      let hasStopped = false;
+
+      function formatElapsedTime(milliseconds) {
+        const totalMilliseconds = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(totalMilliseconds / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(totalMilliseconds % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      function updateTimestamp() {
+        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
+        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
+
+        if (!video.paused && !video.ended && !hasStopped) {
+          rafId = requestAnimationFrame(updateTimestamp);
+        }
+      }
+
+      function cancelAnimation() {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      }
+
+      function prepareVideo() {
+        video.pause();
+        video.currentTime = 0;
+        hasStopped = false;
+        timestampElement.textContent = formatElapsedTime(0);
+
+        if (startTimeoutId !== null) {
+          clearTimeout(startTimeoutId);
+        }
+
+        startTimeoutId = window.setTimeout(() => {
+          startTimeoutId = null;
+          video.play().catch(() => {
+            // Intentionally left empty: autoplay might require user interaction in some browsers.
+          });
+        }, START_DELAY_MS);
+      }
+
+      function handleLoadedMetadata() {
+        prepareVideo();
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      }
+
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        handleLoadedMetadata();
+      }
+
+      video.addEventListener("play", () => {
+        hasStopped = false;
+        cancelAnimation();
+        rafId = requestAnimationFrame(updateTimestamp);
+      });
+
+      video.addEventListener("pause", () => {
+        cancelAnimation();
+        const elapsedSeconds = Math.min(video.currentTime, STOP_AT_SECONDS);
+        timestampElement.textContent = formatElapsedTime(elapsedSeconds * 1000);
+      });
+
+      video.addEventListener("timeupdate", () => {
+        if (!hasStopped && video.currentTime >= STOP_AT_SECONDS) {
+          hasStopped = true;
+          video.currentTime = STOP_AT_SECONDS;
+          video.pause();
+        }
+      });
+    </script>
+  </body>
+</html>
