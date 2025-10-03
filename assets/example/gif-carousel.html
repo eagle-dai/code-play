@@ -131,6 +131,19 @@
 
       const totalSlides = gifSlides.length;
 
+      const INITIAL_ACTIVE_INDEX = Math.max(
+        0,
+        images.findIndex((image) =>
+          image.classList.contains("carousel__image--active")
+        )
+      );
+      const FINAL_SLIDE_INDEX =
+        totalSlides > 0
+          ? (INITIAL_ACTIVE_INDEX +
+              Math.max(0, Math.floor((STOP_AT_MS - 1) / INTERVAL_MS))) %
+            totalSlides
+          : 0;
+
       images.forEach((image, fallbackIndex) => {
         const gifIndex = Number.parseInt(image.dataset.gifIndex ?? "", 10);
         const resolvedIndex = Number.isFinite(gifIndex) ? gifIndex : fallbackIndex;
@@ -168,6 +181,15 @@
           if (projectedIntervals * INTERVAL_MS >= STOP_AT_MS && carouselTimerId !== null) {
             clearInterval(carouselTimerId);
             carouselTimerId = null;
+            completedIntervals = Math.max(
+              completedIntervals,
+              Math.floor((STOP_AT_MS - 1) / INTERVAL_MS)
+            );
+
+            if (activeIndex !== FINAL_SLIDE_INDEX) {
+              showSlide(FINAL_SLIDE_INDEX);
+            }
+
             return;
           }
 
