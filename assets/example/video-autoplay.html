@@ -1,7 +1,75 @@
-        font-size: 3px;
-        width: 160px;
-        height: 120px;
-        font: bold 2.2rem "Arimo", sans-serif;
-        font-size: 2rem;
-        width: 60%;
-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
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>video-autoplay</title>
+    <style>
+      :root {
+        background: #f3f4f6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Arimo", sans-serif;
+        color: #1f2937;
+      }
+
+      main {
+        padding: 2rem 3rem 3rem;
+        border-radius: 1.5rem;
+        background: white;
+        box-shadow: 0 1.5rem 3.5rem rgba(15, 23, 42, 0.15);
+        display: grid;
+        gap: 1.5rem;
+        max-width: 640px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.5rem, 2.5vw + 1rem, 2.5rem);
+        text-align: center;
+      }
+
+      .video-wrapper {
+        border-radius: 1rem;
+        overflow: hidden;
+        background: #111827;
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        height: auto;
+        aspect-ratio: 4 / 3;
+        object-fit: cover;
+      }
+
+      p {
+        margin: 0;
+        font-size: clamp(1rem, 0.8rem + 0.8vw, 1.25rem);
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Autoplaying video demo</h1>
+      <div class="video-wrapper">
+        <video autoplay loop muted playsinline>
+          <source src="video/test_video_cat.mp4" type="video/mp4" />
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <p>The cat video should begin playing automatically.</p>
+    </main>
+  </body>
+</html>
