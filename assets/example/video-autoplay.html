@@ -100,6 +100,7 @@
       const START_DELAY_MS = 1000;
       const STOP_AT_SECONDS = 4;
       const STOP_AT_MILLISECONDS = STOP_AT_SECONDS * 1000;
+      const PLAYBACK_STOP_SECONDS = 3;
 
       const video = document.getElementById("catVideo");
       const timestampElement = document.getElementById("timestampRaf");
@@ -125,7 +126,6 @@
 
         hasStopped = true;
         video.pause();
-        video.currentTime = STOP_AT_SECONDS;
         timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
         cancelAnimation();
       }
@@ -190,7 +190,7 @@
       }
 
       video.addEventListener("timeupdate", () => {
-        if (video.currentTime >= STOP_AT_SECONDS) {
+        if (video.currentTime >= PLAYBACK_STOP_SECONDS) {
           finalizeStop();
         }
       });
