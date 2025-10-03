@@ -18,10 +18,14 @@ restores missing lifecycle hooks:
 
 * A `requestAnimationFrame` probe counts initial ticks so that the automation
   waits for the first frame of real time before seizing virtual time control.
-* The interceptor wraps the global `anime` factory (and timelines it creates) so
-  every instance records its previous `currentTime`. When `seek()` jumps from a
-  resting `0` to a later timestamp, the wrapper replays the missing `begin` and
-  `loopBegin` hooks exactly once.
+* The interceptor wraps the global `anime` factory (and timelines it creates)
+  and primes an instance's `currentTime` before the first virtual-time
+  `seek()` call. Anime.js guards most lifecycle callbacks—`begin`,
+  `loopBegin`, and even `update`/`change*`—behind the assumption that at least
+  one prior frame has advanced `currentTime` beyond zero. By simulating that
+  first frame we let anime.js run its native callback cascade in the correct
+  order, so subsequent hooks (`loopComplete`, `complete`, etc.) fire exactly as
+  they do during real playback.
 
 With these two pieces in place, virtual time captures now reproduce the same
 DOM state as a human viewer would see at the 4-second mark.

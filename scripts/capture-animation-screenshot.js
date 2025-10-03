@@ -16,7 +16,7 @@ const HTML_FILE_PATTERN = /\.html?$/i;
 
 const FRAMEWORK_PATCHES = [
   {
-    name: 'anime.js lifecycle begin hooks',
+    name: 'anime.js lifecycle bootstrap hooks',
     initScript: () => {
       const automationState = (window.__captureAutomation ||= {});
 
@@ -27,14 +27,6 @@ const FRAMEWORK_PATCHES = [
       automationState.animeLifecyclePatched = true;
 
       const patchedInstances = new WeakSet();
-
-      const safeInvoke = (callback, instance) => {
-        try {
-          callback(instance);
-        } catch (error) {
-          console.warn('anime.js lifecycle callback failed during capture', error);
-        }
-      };
 
       const patchInstance = (instance) => {
         if (!instance || typeof instance !== 'object' || patchedInstances.has(instance)) {
@@ -52,28 +44,45 @@ const FRAMEWORK_PATCHES = [
           instance.seek = function patchedSeek(time) {
             const previousTime =
               typeof instance.currentTime === 'number' ? instance.currentTime : 0;
-            const hadBegan = !!instance.began;
-            const hadLoopBegan = !!instance.loopBegan;
-            const result = originalSeek.call(this, time);
-            const movedForwardFromZero = !Number.isNaN(time) && time > 0 && previousTime === 0;
+            let normalizedTarget;
+            if (typeof time === 'number') {
+              normalizedTarget = time;
+            } else {
+              const coerced = Number(time);
+              normalizedTarget = Number.isFinite(coerced) ? coerced : NaN;
+            }
+            const needsBootstrap =
+              Number.isFinite(normalizedTarget) &&
+              normalizedTarget > 0 &&
+              previousTime === 0 &&
+              (!instance.began || !instance.loopBegan);
 
-            if (movedForwardFromZero) {
-              if (!hadBegan && !instance.began) {
-                instance.began = true;
-                if (!instance.passThrough && typeof instance.begin === 'function') {
-                  safeInvoke(instance.begin, instance);
-                }
-              }
-
-              if (!hadLoopBegan && !instance.loopBegan) {
-                instance.loopBegan = true;
-                if (!instance.passThrough && typeof instance.loopBegin === 'function') {
-                  safeInvoke(instance.loopBegin, instance);
-                }
+            if (needsBootstrap) {
+              try {
+                // Anime.js only flips `began`, `loopBegan`, and `changeBegan`
+                // once a prior tick has advanced `currentTime` above zero. By
+                // nudging to the smallest positive value we let the native
+                // `setInstanceProgress()` path fire the complete callback
+                // cascade (including `update`) while keeping the original
+                // ordering intact.
+                instance.currentTime = Number.MIN_VALUE;
+              } catch (error) {
+                console.warn('anime.js bootstrap shim failed to prime currentTime', error);
               }
             }
 
-            return result;
+            try {
+              return originalSeek.call(this, time);
+            } catch (error) {
+              if (needsBootstrap) {
+                try {
+                  instance.currentTime = previousTime;
+                } catch (restoreError) {
+                  console.warn('Failed to restore anime.js currentTime after seek error', restoreError);
+                }
+              }
+              throw error;
+            }
           };
         }
 
