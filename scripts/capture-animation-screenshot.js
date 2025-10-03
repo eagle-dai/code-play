@@ -8,6 +8,7 @@ const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+const INITIAL_REALTIME_WAIT_MS = 120;
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
 
@@ -60,6 +61,12 @@ async function captureAnimationFile(browser, animationFile) {
   try {
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: 'load' });
+
+    // Allow a short slice of real time so requestAnimationFrame callbacks
+    // (and any animation framework lifecycle hooks) can run before we seize
+    // control of virtual time. Without this, begin hooks such as the anime.js
+    // example's visibility toggle never execute, leaving key elements hidden.
+    await page.waitForTimeout(INITIAL_REALTIME_WAIT_MS);
 
     const client = await context.newCDPSession(page);
 
