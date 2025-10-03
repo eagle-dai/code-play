@@ -70,6 +70,176 @@ async function injectRafProbe(context) {
   });
 }
 
+async function injectAnimeLifecyclePatch(context) {
+  await context.addInitScript(() => {
+    const automationState = (window.__captureAutomation ||= {});
+
+    if (automationState.animeLifecyclePatched) {
+      return;
+    }
+
+    automationState.animeLifecyclePatched = true;
+
+    const patchedInstances = new WeakSet();
+
+    const safeInvoke = (callback, instance) => {
+      try {
+        callback(instance);
+      } catch (error) {
+        console.warn('anime.js lifecycle callback failed during capture', error);
+      }
+    };
+
+    const patchInstance = (instance) => {
+      if (!instance || typeof instance !== 'object' || patchedInstances.has(instance)) {
+        return instance;
+      }
+
+      patchedInstances.add(instance);
+
+      if (Array.isArray(instance.children)) {
+        instance.children.forEach(patchInstance);
+      }
+
+      const originalSeek = typeof instance.seek === 'function' ? instance.seek : null;
+      if (originalSeek) {
+        instance.seek = function patchedSeek(time) {
+          const previousTime =
+            typeof instance.currentTime === 'number' ? instance.currentTime : 0;
+          const hadBegan = !!instance.began;
+          const hadLoopBegan = !!instance.loopBegan;
+          const result = originalSeek.call(this, time);
+          const movedForwardFromZero = !Number.isNaN(time) && time > 0 && previousTime === 0;
+
+          if (movedForwardFromZero) {
+            if (!hadBegan && !instance.began) {
+              instance.began = true;
+              if (!instance.passThrough && typeof instance.begin === 'function') {
+                safeInvoke(instance.begin, instance);
+              }
+            }
+
+            if (!hadLoopBegan && !instance.loopBegan) {
+              instance.loopBegan = true;
+              if (!instance.passThrough && typeof instance.loopBegin === 'function') {
+                safeInvoke(instance.loopBegin, instance);
+              }
+            }
+          }
+
+          return result;
+        };
+      }
+
+      const originalReset = typeof instance.reset === 'function' ? instance.reset : null;
+      if (originalReset) {
+        instance.reset = function patchedReset() {
+          const result = originalReset.apply(this, arguments);
+          if (Array.isArray(instance.children)) {
+            instance.children.forEach(patchInstance);
+          }
+          return result;
+        };
+      }
+
+      if (typeof instance.add === 'function') {
+        const originalAdd = instance.add;
+        instance.add = function patchedAdd() {
+          const result = originalAdd.apply(this, arguments);
+          if (Array.isArray(instance.children)) {
+            instance.children.forEach(patchInstance);
+          }
+          return result;
+        };
+      }
+
+      return instance;
+    };
+
+    const wrapAnimeFactory = (factory) => {
+      const wrapped = function wrappedAnime() {
+        const instance = factory.apply(this, arguments);
+        return patchInstance(instance);
+      };
+
+      const descriptors = Object.getOwnPropertyDescriptors(factory);
+      for (const key of Object.keys(descriptors)) {
+        if (key === 'length' || key === 'name' || key === 'arguments' || key === 'caller') {
+          continue;
+        }
+
+        Object.defineProperty(wrapped, key, descriptors[key]);
+      }
+
+      if (typeof factory.timeline === 'function') {
+        Object.defineProperty(wrapped, 'timeline', {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: function timelineWrapper() {
+            const instance = factory.timeline.apply(factory, arguments);
+            return patchInstance(instance);
+          },
+        });
+      }
+
+      return wrapped;
+    };
+
+    const installAnimeInterceptor = (initialValue) => {
+      Object.defineProperty(window, 'anime', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return automationState.animePatchedFactory;
+        },
+        set(value) {
+          if (!value) {
+            automationState.animePatchedFactory = value;
+            return;
+          }
+
+          if (value === automationState.animePatchedFactory) {
+            return;
+          }
+
+          const originalFactory = value.__captureOriginalFactory || value;
+          const patchedFactory = wrapAnimeFactory(originalFactory);
+          patchedFactory.__captureOriginalFactory = originalFactory;
+          automationState.animePatchedFactory = patchedFactory;
+
+          Object.defineProperty(window, 'anime', {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: patchedFactory,
+          });
+        },
+      });
+
+      if (typeof initialValue !== 'undefined') {
+        window.anime = initialValue;
+      }
+    };
+
+    let initialValue;
+    let hasInitialValue = false;
+
+    try {
+      if (Object.prototype.hasOwnProperty.call(window, 'anime')) {
+        initialValue = window.anime;
+        hasInitialValue = true;
+        delete window.anime;
+      }
+    } catch (error) {
+      initialValue = undefined;
+      hasInitialValue = false;
+    }
+
+    installAnimeInterceptor(hasInitialValue ? initialValue : undefined);
+  });
+}
+
 async function waitForAnimationBootstrap(page) {
   if (MAX_INITIAL_REALTIME_WAIT_MS <= 0) {
     return;
@@ -107,6 +277,7 @@ async function captureAnimationFile(browser, animationFile) {
 
   try {
     await injectRafProbe(context);
+    await injectAnimeLifecyclePatch(context);
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: 'load' });
 
