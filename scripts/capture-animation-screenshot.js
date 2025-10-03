@@ -8,7 +8,9 @@ const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
-const INITIAL_REALTIME_WAIT_MS = 120;
+const MIN_INITIAL_REALTIME_WAIT_MS = 120;
+const MAX_INITIAL_REALTIME_WAIT_MS = 1_000;
+const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
 
@@ -53,20 +55,67 @@ async function advanceVirtualTime(client, budgetMs) {
   });
 }
 
+async function injectRafProbe(context) {
+  await context.addInitScript(() => {
+    const automationState = (window.__captureAutomation ||= {});
+    automationState.rafTickCount = 0;
+
+    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+
+    window.requestAnimationFrame = (callback) =>
+      originalRequestAnimationFrame((timestamp) => {
+        automationState.rafTickCount += 1;
+        return callback(timestamp);
+      });
+  });
+}
+
+async function waitForAnimationBootstrap(page) {
+  if (MAX_INITIAL_REALTIME_WAIT_MS <= 0) {
+    return;
+  }
+
+  await page.waitForTimeout(Math.max(0, MIN_INITIAL_REALTIME_WAIT_MS));
+
+  const remainingBudget = Math.max(
+    0,
+    MAX_INITIAL_REALTIME_WAIT_MS - Math.max(0, MIN_INITIAL_REALTIME_WAIT_MS)
+  );
+
+  if (remainingBudget === 0 || MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME <= 0) {
+    return;
+  }
+
+  try {
+    await page.waitForFunction(
+      (minTicks) =>
+        (window.__captureAutomation?.rafTickCount || 0) >= minTicks,
+      MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME,
+      { timeout: remainingBudget }
+    );
+  } catch (error) {
+    if (!/Timeout/i.test(error?.message || '')) {
+      throw error;
+    }
+  }
+}
+
 async function captureAnimationFile(browser, animationFile) {
   const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
   const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
   const page = await context.newPage();
 
   try {
+    await injectRafProbe(context);
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: 'load' });
 
-    // Allow a short slice of real time so requestAnimationFrame callbacks
-    // (and any animation framework lifecycle hooks) can run before we seize
-    // control of virtual time. Without this, begin hooks such as the anime.js
-    // example's visibility toggle never execute, leaving key elements hidden.
-    await page.waitForTimeout(INITIAL_REALTIME_WAIT_MS);
+    // Allow a slice of real time so requestAnimationFrame callbacks (and any
+    // animation framework lifecycle hooks) can run before we seize control of
+    // virtual time. The RAF probe waits for a minimum number of ticks—up to a
+    // 1s cap—to cover animations that rely on several frames of bootstrap work
+    // before reaching their steady state.
+    await waitForAnimationBootstrap(page);
 
     const client = await context.newCDPSession(page);
 
