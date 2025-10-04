@@ -309,16 +309,58 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
         return;
       }
 
+      const toFinite = (value) => (Number.isFinite(value) ? value : NaN);
+      const pickLatestBufferedTime = (element) => {
+        if (!element?.buffered || element.buffered.length === 0) {
+          return NaN;
+        }
+
+        let latest = NaN;
+        for (let i = 0; i < element.buffered.length; i += 1) {
+          const candidate = element.buffered.end(i);
+          if (!Number.isFinite(candidate)) {
+            continue;
+          }
+
+          if (!Number.isFinite(latest) || candidate > latest) {
+            latest = candidate;
+          }
+        }
+
+        return latest;
+      };
+
       const alignElement = (element) => {
-        const duration = Number.isFinite(element.duration) ? element.duration : NaN;
-        const effectiveTarget =
-          Number.isFinite(duration) && duration > 0
-            ? Math.min(targetSeconds, duration)
-            : targetSeconds;
+        const duration = toFinite(element.duration);
+        const latestBuffered = pickLatestBufferedTime(element);
+        const naturalTime = toFinite(element.currentTime);
+        const naturalFrameIsReady =
+          Number.isFinite(naturalTime) &&
+          naturalTime >= 0 &&
+          (element.paused || element.ended) &&
+          element.readyState >= element.HAVE_CURRENT_DATA;
+
+        const candidateTimes = [targetSeconds];
+
+        if (Number.isFinite(duration) && duration >= 0) {
+          candidateTimes.push(duration);
+        }
+
+        if (Number.isFinite(latestBuffered) && latestBuffered >= 0) {
+          candidateTimes.push(latestBuffered);
+        }
+
+        if (naturalFrameIsReady) {
+          candidateTimes.push(naturalTime);
+        }
+
+        const effectiveTarget = Math.min(...candidateTimes.filter(Number.isFinite));
 
         if (!Number.isFinite(effectiveTarget)) {
           return;
         }
+
+        const epsilon = 1 / 120; // ~8ms guard against redundant seeks.
 
         try {
           element.pause?.();
@@ -326,10 +368,15 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
           // Ignore pause errors.
         }
 
-        try {
-          element.currentTime = effectiveTarget;
-        } catch (error) {
-          return;
+        if (
+          !Number.isFinite(naturalTime) ||
+          Math.abs(naturalTime - effectiveTarget) > epsilon
+        ) {
+          try {
+            element.currentTime = effectiveTarget;
+          } catch (error) {
+            return;
+          }
         }
 
         try {
