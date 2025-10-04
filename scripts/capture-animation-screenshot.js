@@ -13,6 +13,7 @@ const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const MEDIA_READY_TIMEOUT_MS = 5_000;
 const MEDIA_READY_STATE_THRESHOLD = 2; // HTMLMediaElement.HAVE_CURRENT_DATA
+const MEDIA_FALLBACK_BROWSER_CHANNEL = 'chrome';
 
 // Real-time pre-roll before virtual time is enabled. Some animation frameworks
 // perform asynchronous preparation that only kicks in after a few
@@ -229,6 +230,68 @@ const FRAMEWORK_PATCHES = [
   },
 ];
 
+class UnsupportedMediaError extends Error {
+  constructor(message, details) {
+    super(message);
+    this.name = 'UnsupportedMediaError';
+    this.details = details;
+  }
+}
+
+function formatBrowserChannelLabel(channel) {
+  if (!channel) {
+    return 'Chromium';
+  }
+
+  if (channel === 'chrome') {
+    return 'Chrome';
+  }
+
+  return channel;
+}
+
+function reportCaptureFailures(failures) {
+  if (!failures || failures.length === 0) {
+    return;
+  }
+
+  console.error(
+    `Encountered errors while capturing ${failures.length} animation(s): ${failures.join(', ')}`
+  );
+  process.exitCode = 1;
+}
+
+function logUnsupportedMediaDetails(details) {
+  if (!Array.isArray(details) || details.length === 0) {
+    return;
+  }
+
+  console.error('Unsupported media sources detected:');
+  for (const entry of details) {
+    const label = entry?.tagName ? `<${entry.tagName}>` : '<media>';
+    const current = entry?.currentSrc ? ` ${entry.currentSrc}` : ' (no currentSrc available)';
+    console.error(`  - ${label}${current}`);
+
+    if (Array.isArray(entry?.sources) && entry.sources.length > 0) {
+      for (const source of entry.sources) {
+        const parts = [];
+        if (source?.src) {
+          parts.push(source.src);
+        }
+        if (source?.type) {
+          parts.push(`type=${source.type}`);
+        }
+        console.error(`      source: ${parts.join(' ') || '(no src attribute)'}`);
+      }
+    }
+
+    if (entry?.error) {
+      const { code, message } = entry.error;
+      console.error(`      error: code=${code} message=${message || ''}`);
+    }
+  }
+}
+
 async function ensureDirectoryAvailable(directoryPath) {
   try {
     await fs.access(directoryPath);
@@ -330,42 +393,79 @@ async function waitForMediaReady(page) {
     return;
   }
 
-  try {
-    await page.waitForFunction(
-      (readyStateThreshold) => {
-        const elements = Array.from(document.querySelectorAll('video, audio'));
+  const startTime = Date.now();
 
-        if (elements.length === 0) {
-          return true;
+  while (Date.now() - startTime < MEDIA_READY_TIMEOUT_MS) {
+    const state = await page.evaluate((readyStateThreshold) => {
+      const elements = Array.from(document.querySelectorAll('video, audio'));
+
+      if (elements.length === 0) {
+        return { state: 'ready' };
+      }
+
+      const unsupported = [];
+      let pending = false;
+
+      for (const element of elements) {
+        if (!element) {
+          continue;
         }
 
-        return elements.every((element) => {
-          if (!element) {
-            return true;
-          }
+        const sources = Array.from(element.querySelectorAll('source')).map((source) => ({
+          src: source?.src || null,
+          type: source?.type || null,
+        }));
 
-          if (element.error) {
-            return true;
-          }
+        if (element.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+          unsupported.push({
+            tagName: element.tagName.toLowerCase(),
+            currentSrc: element.currentSrc || null,
+            sources,
+          });
+          continue;
+        }
 
-          if (element.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
-            return true;
-          }
+        if (element.error) {
+          unsupported.push({
+            tagName: element.tagName.toLowerCase(),
+            currentSrc: element.currentSrc || null,
+            error: {
+              code: element.error.code,
+              message: element.error.message || null,
+            },
+            sources,
+          });
+          continue;
+        }
 
-          if (typeof element.readyState !== 'number') {
-            return true;
-          }
+        if (typeof element.readyState !== 'number' || element.readyState < readyStateThreshold) {
+          pending = true;
+        }
+      }
 
-          return element.readyState >= readyStateThreshold;
-        });
-      },
-      MEDIA_READY_STATE_THRESHOLD,
-      { timeout: MEDIA_READY_TIMEOUT_MS }
-    );
-  } catch (error) {
-    if (!/Timeout/i.test(error?.message || '')) {
-      throw error;
+      if (unsupported.length > 0) {
+        return { state: 'unsupported', details: unsupported };
+      }
+
+      if (!pending) {
+        return { state: 'ready' };
+      }
+
+      return { state: 'pending' };
+    }, MEDIA_READY_STATE_THRESHOLD);
+
+    if (state.state === 'ready') {
+      return;
     }
+
+    if (state.state === 'unsupported') {
+      throw new UnsupportedMediaError(
+        'One or more media elements could not locate a playable source.',
+        state.details
+      );
+    }
+
+    await page.waitForTimeout(100);
   }
 }
 
@@ -433,20 +533,62 @@ async function captureAnimationFile(browser, animationFile) {
   }
 }
 
-function logChromiumLaunchFailure(error) {
+async function captureAllAnimationsWithBrowser(channel, animationFiles) {
+  const launchOptions = {};
+  if (channel) {
+    launchOptions.channel = channel;
+  }
+
+  let browser;
+  try {
+    browser = await chromium.launch(launchOptions);
+  } catch (error) {
+    error.browserChannel = channel;
+    throw error;
+  }
+
+  const failures = [];
+
+  try {
+    for (const animationFile of animationFiles) {
+      try {
+        const screenshotPath = await captureAnimationFile(browser, animationFile);
+        console.log(`Captured ${animationFile} -> ${screenshotPath}`);
+      } catch (error) {
+        if (error instanceof UnsupportedMediaError) {
+          error.browserChannel = channel;
+          throw error;
+        }
+
+        failures.push(animationFile);
+        console.error(`Failed to capture ${animationFile}:`, error);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return failures;
+}
+
+function logBrowserLaunchFailure(error, channel) {
   const message = error?.message || '';
+  const label = formatBrowserChannelLabel(channel);
+  const installCommand = channel ? `npx playwright install ${channel}` : 'npx playwright install chromium';
 
   if (message.includes("Executable doesn't exist")) {
-    console.error(
-      'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
-    );
-  } else if (message.includes('Host system is missing dependencies')) {
-    console.error(
-      'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
-    );
-  } else {
-    console.error('Failed to launch Chromium:', error);
+    console.error(`${label} binary not found. Run "${installCommand}" and retry.`);
+    return;
   }
+
+  if (message.includes('Host system is missing dependencies')) {
+    console.error(
+      `${label} is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright's documentation for your platform) and retry.`
+    );
+    return;
+  }
+
+  console.error(`Failed to launch ${label}:`, error);
 }
 
 (async () => {
@@ -475,35 +617,61 @@ function logChromiumLaunchFailure(error) {
 
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
 
-  let browser;
   try {
-    browser = await chromium.launch();
-  } catch (error) {
-    logChromiumLaunchFailure(error);
-    process.exitCode = 1;
+    const failures = await captureAllAnimationsWithBrowser(null, animationFiles);
+    reportCaptureFailures(failures);
     return;
-  }
+  } catch (error) {
+    if (error instanceof UnsupportedMediaError) {
+      if (!MEDIA_FALLBACK_BROWSER_CHANNEL) {
+        console.error(
+          `${formatBrowserChannelLabel(null)} could not decode the required media sources.`
+        );
+        logUnsupportedMediaDetails(error.details);
+        console.error(
+          'Install a browser build with the necessary codecs (for example, run "npx playwright install chrome") and retry.'
+        );
+        process.exitCode = 1;
+        return;
+      }
 
-  const failures = [];
+      console.warn(
+        `${formatBrowserChannelLabel(null)} could not decode the required media sources. Retrying with ${formatBrowserChannelLabel(MEDIA_FALLBACK_BROWSER_CHANNEL)}...`
+      );
 
-  try {
-    for (const animationFile of animationFiles) {
       try {
-        const screenshotPath = await captureAnimationFile(browser, animationFile);
-        console.log(`Captured ${animationFile} -> ${screenshotPath}`);
-      } catch (error) {
-        failures.push(animationFile);
-        console.error(`Failed to capture ${animationFile}:`, error);
+        const fallbackFailures = await captureAllAnimationsWithBrowser(
+          MEDIA_FALLBACK_BROWSER_CHANNEL,
+          animationFiles
+        );
+        reportCaptureFailures(fallbackFailures);
+        return;
+      } catch (fallbackError) {
+        if (fallbackError instanceof UnsupportedMediaError) {
+          console.error(
+            `${formatBrowserChannelLabel(MEDIA_FALLBACK_BROWSER_CHANNEL)} also failed to decode the required media sources.`
+          );
+          logUnsupportedMediaDetails(fallbackError.details);
+          console.error(
+            'Ensure the example media files use codecs supported by your browser build and retry.'
+          );
+        } else if (fallbackError.browserChannel !== undefined) {
+          logBrowserLaunchFailure(fallbackError, fallbackError.browserChannel);
+        } else {
+          console.error('Failed to capture animations:', fallbackError);
+        }
+        process.exitCode = 1;
+        return;
       }
     }
-  } finally {
-    await browser.close();
-  }
 
-  if (failures.length > 0) {
-    console.error(
-      `Encountered errors while capturing ${failures.length} animation(s): ${failures.join(', ')}`
-    );
+    if (error.browserChannel !== undefined) {
+      logBrowserLaunchFailure(error, error.browserChannel);
+      process.exitCode = 1;
+      return;
+    }
+
+    console.error('Failed to capture animations:', error);
     process.exitCode = 1;
   }
 })();
