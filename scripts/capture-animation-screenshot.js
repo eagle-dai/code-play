@@ -11,6 +11,8 @@ const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+const MEDIA_READY_TIMEOUT_MS = 5_000;
+const MEDIA_READY_STATE_THRESHOLD = 2; // HTMLMediaElement.HAVE_CURRENT_DATA
 
 // Real-time pre-roll before virtual time is enabled. Some animation frameworks
 // perform asynchronous preparation that only kicks in after a few
@@ -323,6 +325,50 @@ async function waitForAnimationBootstrap(page) {
   }
 }
 
+async function waitForMediaReady(page) {
+  if (MEDIA_READY_TIMEOUT_MS <= 0) {
+    return;
+  }
+
+  try {
+    await page.waitForFunction(
+      (readyStateThreshold) => {
+        const elements = Array.from(document.querySelectorAll('video, audio'));
+
+        if (elements.length === 0) {
+          return true;
+        }
+
+        return elements.every((element) => {
+          if (!element) {
+            return true;
+          }
+
+          if (element.error) {
+            return true;
+          }
+
+          if (element.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+            return true;
+          }
+
+          if (typeof element.readyState !== 'number') {
+            return true;
+          }
+
+          return element.readyState >= readyStateThreshold;
+        });
+      },
+      MEDIA_READY_STATE_THRESHOLD,
+      { timeout: MEDIA_READY_TIMEOUT_MS }
+    );
+  } catch (error) {
+    if (!/Timeout/i.test(error?.message || '')) {
+      throw error;
+    }
+  }
+}
+
 async function captureAnimationFile(browser, animationFile) {
   const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
   const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
@@ -340,6 +386,7 @@ async function captureAnimationFile(browser, animationFile) {
     // 1s cap—to cover animations that rely on several frames of bootstrap work
     // before reaching their steady state.
     await waitForAnimationBootstrap(page);
+    await waitForMediaReady(page);
 
     const client = await context.newCDPSession(page);
 
