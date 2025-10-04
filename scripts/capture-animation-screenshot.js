@@ -11,6 +11,8 @@ const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+const MEDIA_ELEMENT_SELECTOR = 'video, audio';
+const MEDIA_SETTLE_BUDGET_MS = 120;
 
 // Real-time pre-roll before virtual time is enabled. Some animation frameworks
 // perform asynchronous preparation that only kicks in after a few
@@ -293,6 +295,76 @@ async function injectFrameworkPatches(context) {
   }
 }
 
+async function synchronizeMediaPlayback(page, targetTimeMs) {
+  if (!page || typeof targetTimeMs !== 'number' || targetTimeMs < 0) {
+    return;
+  }
+
+  await page.evaluate(
+    ({ selector, targetTimeMs: evaluateTargetTimeMs }) => {
+      const targetSeconds = Math.max(0, evaluateTargetTimeMs / 1000);
+      const mediaElements = Array.from(document.querySelectorAll(selector));
+
+      if (mediaElements.length === 0) {
+        return;
+      }
+
+      const alignElement = (element) => {
+        const duration = Number.isFinite(element.duration) ? element.duration : NaN;
+        const effectiveTarget =
+          Number.isFinite(duration) && duration > 0
+            ? Math.min(targetSeconds, duration)
+            : targetSeconds;
+
+        if (!Number.isFinite(effectiveTarget)) {
+          return;
+        }
+
+        try {
+          element.pause?.();
+        } catch (error) {
+          // Ignore pause errors.
+        }
+
+        try {
+          element.currentTime = effectiveTarget;
+        } catch (error) {
+          return;
+        }
+
+        try {
+          element.pause?.();
+        } catch (error) {
+          // Ignore pause errors.
+        }
+      };
+
+      for (const element of mediaElements) {
+        if (element.readyState >= element.HAVE_METADATA) {
+          alignElement(element);
+          continue;
+        }
+
+        const handleLoadedMetadata = () => {
+          element.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          alignElement(element);
+        };
+
+        element.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+
+        if (element.readyState >= element.HAVE_METADATA) {
+          element.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          alignElement(element);
+        }
+      }
+    },
+    {
+      selector: MEDIA_ELEMENT_SELECTOR,
+      targetTimeMs,
+    }
+  );
+}
+
 async function waitForAnimationBootstrap(page) {
   if (MAX_INITIAL_REALTIME_WAIT_MS <= 0) {
     return;
@@ -356,6 +428,10 @@ async function captureAnimationFile(browser, animationFile) {
       elapsed += step;
     }
 
+    if (MEDIA_SETTLE_BUDGET_MS > 0) {
+      await advanceVirtualTime(client, MEDIA_SETTLE_BUDGET_MS);
+    }
+
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
     await page.evaluate((targetTimeMs) => {
@@ -369,6 +445,10 @@ async function captureAnimationFile(browser, animationFile) {
         }
       }
     }, TARGET_TIME_MS);
+
+    await synchronizeMediaPlayback(page, TARGET_TIME_MS);
+
+    await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
     const safeName = animationFile
       .replace(/[\\/]/g, '-')
