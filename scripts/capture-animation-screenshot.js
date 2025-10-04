@@ -7,7 +7,6 @@ const { pathToFileURL } = require('url');
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
 const TARGET_TIME_MS = 4_000;
-const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
@@ -373,13 +372,7 @@ async function captureAnimationFile(browser, animationFile) {
       budget: 0,
     });
 
-    let elapsed = 0;
-    while (elapsed < TARGET_TIME_MS) {
-      const remaining = TARGET_TIME_MS - elapsed;
-      const step = Math.min(remaining, VIRTUAL_TIME_STEP_MS);
-      await advanceVirtualTime(client, step);
-      elapsed += step;
-    }
+    await advanceVirtualTime(client, TARGET_TIME_MS);
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
