@@ -13,6 +13,7 @@ const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
 const MEDIA_ELEMENT_SELECTOR = 'video, audio';
 const MEDIA_SETTLE_BUDGET_MS = 120;
+const MEDIA_FRAME_WAIT_TIMEOUT_MS = 10_000;
 
 // Real-time pre-roll before virtual time is enabled. Some animation frameworks
 // perform asynchronous preparation that only kicks in after a few
@@ -300,14 +301,10 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
     return;
   }
 
-  await page.evaluate(
+  const syncPlan = await page.evaluate(
     ({ selector, targetTimeMs: evaluateTargetTimeMs }) => {
       const targetSeconds = Math.max(0, evaluateTargetTimeMs / 1000);
       const mediaElements = Array.from(document.querySelectorAll(selector));
-
-      if (mediaElements.length === 0) {
-        return;
-      }
 
       const toFinite = (value) => (Number.isFinite(value) ? value : NaN);
       const pickLatestBufferedTime = (element) => {
@@ -330,7 +327,21 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
         return latest;
       };
 
-      const alignElement = (element) => {
+      const epsilon = 1 / 120; // ~8ms guard against redundant seeks.
+      const plan = [];
+
+      mediaElements.forEach((element, index) => {
+        if (!element) {
+          return;
+        }
+
+        const initialReadyState = element.readyState;
+
+        if (initialReadyState < element.HAVE_METADATA) {
+          plan.push({ index, skipWait: true, initialReadyState });
+          return;
+        }
+
         const duration = toFinite(element.duration);
         const latestBuffered = pickLatestBufferedTime(element);
         const naturalTime = toFinite(element.currentTime);
@@ -357,10 +368,9 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
         const effectiveTarget = Math.min(...candidateTimes.filter(Number.isFinite));
 
         if (!Number.isFinite(effectiveTarget)) {
+          plan.push({ index, skipWait: true });
           return;
         }
-
-        const epsilon = 1 / 120; // ~8ms guard against redundant seeks.
 
         try {
           element.pause?.();
@@ -368,48 +378,170 @@ async function synchronizeMediaPlayback(page, targetTimeMs) {
           // Ignore pause errors.
         }
 
-        if (
-          !Number.isFinite(naturalTime) ||
-          Math.abs(naturalTime - effectiveTarget) > epsilon
-        ) {
+        const needsSeek =
+          !Number.isFinite(naturalTime) || Math.abs(naturalTime - effectiveTarget) > epsilon;
+
+        let seekApplied = false;
+
+        if (needsSeek) {
           try {
             element.currentTime = effectiveTarget;
+            seekApplied = true;
           } catch (error) {
+            plan.push({ index, skipWait: true });
             return;
           }
         }
 
+        plan.push({
+          index,
+          targetSeconds: effectiveTarget,
+          requiresReadyCheck: seekApplied || !naturalFrameIsReady,
+          initialReadyState,
+        });
+
         try {
           element.pause?.();
         } catch (error) {
           // Ignore pause errors.
         }
-      };
+      });
 
-      for (const element of mediaElements) {
-        if (element.readyState >= element.HAVE_METADATA) {
-          alignElement(element);
-          continue;
-        }
-
-        const handleLoadedMetadata = () => {
-          element.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          alignElement(element);
-        };
-
-        element.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
-
-        if (element.readyState >= element.HAVE_METADATA) {
-          element.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          alignElement(element);
-        }
-      }
+      return { plan, epsilon };
     },
     {
       selector: MEDIA_ELEMENT_SELECTOR,
       targetTimeMs,
     }
   );
+
+  const entriesToVerify =
+    syncPlan?.plan?.filter((entry) => entry && entry.requiresReadyCheck && entry.targetSeconds !== undefined) || [];
+
+  if (entriesToVerify.length === 0) {
+    return;
+  }
+
+  const waitResult = await page
+    .waitForFunction(
+      ({ selector, entries, epsilon }) => {
+        const mediaElements = Array.from(document.querySelectorAll(selector));
+
+        return entries.every((entry) => {
+          if (!entry) {
+            return true;
+          }
+
+          const element = mediaElements[entry.index];
+          if (!element) {
+            return true;
+          }
+
+          const currentTime = Number(element.currentTime);
+          if (!Number.isFinite(currentTime)) {
+            return false;
+          }
+
+          const closeEnough = Math.abs(currentTime - entry.targetSeconds) <= epsilon;
+          const hasFrame = element.readyState >= element.HAVE_CURRENT_DATA;
+
+          return closeEnough && hasFrame;
+        });
+      },
+      {
+        selector: MEDIA_ELEMENT_SELECTOR,
+        entries: entriesToVerify,
+        epsilon: syncPlan?.epsilon || 1 / 120,
+      },
+      { timeout: MEDIA_FRAME_WAIT_TIMEOUT_MS }
+    )
+    .catch(async (error) => {
+      if (error?.name === 'TimeoutError') {
+        const debugSnapshot = await page.evaluate(
+          ({ selector, entries }) => {
+            const mediaElements = Array.from(document.querySelectorAll(selector));
+            return entries.map((entry) => {
+              const element = mediaElements[entry.index];
+
+              if (!element) {
+                return { index: entry.index, missing: true };
+              }
+
+              const bufferedSummary = (() => {
+                if (!element.buffered || element.buffered.length === 0) {
+                  return [];
+                }
+
+                const ranges = [];
+                for (let i = 0; i < element.buffered.length; i += 1) {
+                  ranges.push({ start: element.buffered.start(i), end: element.buffered.end(i) });
+                }
+                return ranges;
+              })();
+
+              return {
+                index: entry.index,
+                targetSeconds: entry.targetSeconds,
+                currentTime: element.currentTime,
+                readyState: element.readyState,
+                paused: element.paused,
+                ended: element.ended,
+                buffered: bufferedSummary,
+                error: element.error ? { code: element.error.code, message: element.error.message } : null,
+              };
+            });
+          },
+          { selector: MEDIA_ELEMENT_SELECTOR, entries: entriesToVerify }
+        );
+
+        throw new Error(
+          `${error.message}\nMedia synchronization state: ${JSON.stringify(debugSnapshot)}`,
+          { cause: error }
+        );
+      }
+
+      throw error;
+    });
+
+  await waitResult;
+}
+
+async function ensureMediaMetadataLoaded(page) {
+  if (!page) {
+    return;
+  }
+
+  try {
+    await page.waitForFunction(
+      (selector) => {
+        const mediaElements = Array.from(document.querySelectorAll(selector));
+
+        return mediaElements.every((element) => {
+          if (!element) {
+            return true;
+          }
+
+          if (element.readyState >= element.HAVE_METADATA) {
+            return true;
+          }
+
+          if (element.error) {
+            return true;
+          }
+
+          return false;
+        });
+      },
+      MEDIA_ELEMENT_SELECTOR,
+      { timeout: MEDIA_FRAME_WAIT_TIMEOUT_MS }
+    );
+  } catch (error) {
+    if (/Timeout/i.test(error?.message || '')) {
+      console.warn('Timed out waiting for media metadata before synchronization.');
+    } else {
+      throw error;
+    }
+  }
 }
 
 async function waitForAnimationBootstrap(page) {
@@ -458,6 +590,7 @@ async function captureAnimationFile(browser, animationFile) {
     // virtual time. The RAF probe waits for a minimum number of ticks—up to a
     // 1s cap—to cover animations that rely on several frames of bootstrap work
     // before reaching their steady state.
+    await ensureMediaMetadataLoaded(page);
     await waitForAnimationBootstrap(page);
 
     const client = await context.newCDPSession(page);
