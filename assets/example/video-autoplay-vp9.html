@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>video-autoplay-vp9</title>
+    <style>
+      :root {
+        background: #ccc;
+      }
+
+      html {
+        font-size: 4px;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Arimo", sans-serif;
+      }
+
+      #pages {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 320px;
+        height: 240px;
+        overflow: hidden;
+        contain: strict;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        box-sizing: border-box;
+        background: linear-gradient(145deg, #0f172a, #1f2937);
+        color: #f8fafc;
+        border-radius: 18px;
+      }
+
+      #timestampRaf {
+        position: absolute;
+        top: 5%;
+        left: 5%;
+        font: bold 3rem "Arimo", sans-serif;
+        letter-spacing: 0.2rem;
+        color: #f8fafc;
+        background: rgba(15, 23, 42, 0.65);
+        padding: 0.5rem 1rem;
+        border-radius: 1rem;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 5.5rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .video-frame {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 4 / 3;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 16px 32px rgba(15, 23, 42, 0.4);
+        background:
+          radial-gradient(
+            circle at 30% 30%,
+            rgba(148, 163, 184, 0.55),
+            rgba(30, 64, 175, 0.4)
+          ),
+          rgba(15, 23, 42, 0.25);
+      }
+
+      video {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        opacity: 0;
+        transition: opacity 1s ease;
+      }
+
+      video.is-visible {
+        opacity: 1;
+      }
+
+      p {
+        margin: 0;
+        font-size: 3rem;
+        color: rgba(241, 245, 249, 0.8);
+        text-align: center;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="pages">
+      <div id="timestampRaf">00:00.000</div>
+      <h1>VIDEO TEST (VP9)</h1>
+      <div class="video-frame">
+        <video id="rocketVideo" muted playsinline preload="auto">
+          <source src="video/cartoon_rocket_vp9_better.webm" type='video/webm; codecs="vp9"' />
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      <p>Video waits 1s, plays until 4s, then pauses.</p>
+    </div>
+
+    <script>
+      const START_DELAY_MS = 1000;
+      const STOP_AT_SECONDS = 4;
+      const STOP_AT_MILLISECONDS = STOP_AT_SECONDS * 1000;
+      const PLAYBACK_STOP_SECONDS = 3;
+
+      const video = document.getElementById("rocketVideo");
+      const timestampElement = document.getElementById("timestampRaf");
+
+      let startTimeoutId = null;
+      let rafId = null;
+      let hasStopped = false;
+      let timerStartTimestamp = null;
+
+      function formatElapsedTime(milliseconds) {
+        const totalMilliseconds = Math.max(0, Math.floor(milliseconds));
+        const totalSeconds = Math.floor(totalMilliseconds / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        const ms = String(totalMilliseconds % 1000).padStart(3, "0");
+        return `${minutes}:${seconds}.${ms}`;
+      }
+
+      function finalizeStop() {
+        if (hasStopped) {
+          return;
+        }
+
+        hasStopped = true;
+        video.pause();
+        timestampElement.textContent = formatElapsedTime(STOP_AT_MILLISECONDS);
+        cancelAnimation();
+      }
+
+      function tick(now) {
+        if (timerStartTimestamp === null) {
+          timerStartTimestamp = now;
+        }
+
+        const elapsedMilliseconds = now - timerStartTimestamp;
+
+        if (elapsedMilliseconds >= STOP_AT_MILLISECONDS) {
+          finalizeStop();
+          return;
+        }
+
+        timestampElement.textContent = formatElapsedTime(elapsedMilliseconds);
+        rafId = requestAnimationFrame(tick);
+      }
+
+      function startTimer() {
+        cancelAnimation();
+        timerStartTimestamp = performance.now();
+        timestampElement.textContent = formatElapsedTime(0);
+        rafId = requestAnimationFrame(tick);
+      }
+
+      function cancelAnimation() {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      }
+
+      function prepareVideo() {
+        video.pause();
+        video.currentTime = 0;
+        hasStopped = false;
+        startTimer();
+
+        video.classList.remove("is-visible");
+
+        if (startTimeoutId !== null) {
+          clearTimeout(startTimeoutId);
+        }
+
+        startTimeoutId = window.setTimeout(() => {
+          startTimeoutId = null;
+          video.classList.add("is-visible");
+          video.play().catch(() => {
+            // Autoplay might require user interaction in some browsers.
+          });
+        }, START_DELAY_MS);
+      }
+
+      function handleLoadedMetadata() {
+        prepareVideo();
+        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      }
+
+      video.addEventListener("loadedmetadata", handleLoadedMetadata);
+
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        handleLoadedMetadata();
+      }
+
+      video.addEventListener("timeupdate", () => {
+        if (video.currentTime >= PLAYBACK_STOP_SECONDS) {
+          finalizeStop();
+        }
+      });
+    </script>
+  </body>
+</html>
