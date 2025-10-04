@@ -11,6 +11,9 @@ const VIRTUAL_TIME_STEP_MS = 250;
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
+const BROWSER_CHANNEL = (process.env.PLAYWRIGHT_BROWSER_CHANNEL || '').trim() || null;
+const BROWSER_EXECUTABLE_PATH =
+  (process.env.PLAYWRIGHT_CHROME_EXECUTABLE || '').trim() || null;
 
 // Real-time pre-roll before virtual time is enabled. Some animation frameworks
 // perform asynchronous preparation that only kicks in after a few
@@ -393,6 +396,14 @@ function logChromiumLaunchFailure(error) {
     console.error(
       'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
     );
+  } else if (BROWSER_EXECUTABLE_PATH) {
+    console.error(
+      `Unable to launch the browser at PLAYWRIGHT_CHROME_EXECUTABLE (currently '${BROWSER_EXECUTABLE_PATH}'). Verify the path and retry.`
+    );
+  } else if (BROWSER_CHANNEL) {
+    console.error(
+      `Failed to launch the Playwright channel "${BROWSER_CHANNEL}". Ensure the corresponding browser (for example Google Chrome for "chrome") is installed and Playwright supports it on this platform.`
+    );
   } else if (message.includes('Host system is missing dependencies')) {
     console.error(
       'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
@@ -430,7 +441,14 @@ function logChromiumLaunchFailure(error) {
 
   let browser;
   try {
-    browser = await chromium.launch();
+    const launchOptions = {};
+    if (BROWSER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = BROWSER_EXECUTABLE_PATH;
+    } else if (BROWSER_CHANNEL) {
+      launchOptions.channel = BROWSER_CHANNEL;
+    }
+
+    browser = await chromium.launch(launchOptions);
   } catch (error) {
     logChromiumLaunchFailure(error);
     process.exitCode = 1;
