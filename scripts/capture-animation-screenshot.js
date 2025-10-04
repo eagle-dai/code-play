@@ -36,6 +36,7 @@ const HTML_FILE_PATTERN = /\.html?$/i;
 const FRAMEWORK_PATCHES = [
   {
     name: 'anime.js lifecycle bootstrap hooks',
+    // Injects shims so anime.js timelines behave correctly when virtual time is fast-forwarded.
     initScript: () => {
       const automationState = (window.__captureAutomation ||= {});
 
@@ -47,6 +48,7 @@ const FRAMEWORK_PATCHES = [
 
       const patchedInstances = new WeakSet();
 
+      // Recursively decorates an anime.js instance and its children so bootstrap state is preserved after virtual seeks.
       const patchInstance = (instance) => {
         if (!instance || typeof instance !== 'object' || patchedInstances.has(instance)) {
           return instance;
@@ -60,6 +62,7 @@ const FRAMEWORK_PATCHES = [
 
         const originalSeek = typeof instance.seek === 'function' ? instance.seek : null;
         if (originalSeek) {
+          // Ensures the first seek primes anime.js lifecycle flags before delegating to the native implementation.
           instance.seek = function patchedSeek(time) {
             const previousTime =
               typeof instance.currentTime === 'number' ? instance.currentTime : 0;
@@ -107,6 +110,7 @@ const FRAMEWORK_PATCHES = [
 
         const originalReset = typeof instance.reset === 'function' ? instance.reset : null;
         if (originalReset) {
+          // Restores patched children after anime.js resets a timeline tree.
           instance.reset = function patchedReset() {
             // Resetting an anime.js timeline reinstates child animations. Those
             // children need to be re-patched so any subsequent virtual-time
@@ -121,6 +125,7 @@ const FRAMEWORK_PATCHES = [
 
         if (typeof instance.add === 'function') {
           const originalAdd = instance.add;
+          // Applies the patch to any child animation added after initial construction.
           instance.add = function patchedAdd() {
             // Adding child animations at runtime should immediately inherit the
             // patched seek behavior. Recurse after the native call so we only
@@ -136,7 +141,9 @@ const FRAMEWORK_PATCHES = [
         return instance;
       };
 
+      // Wraps the anime.js factory so every returned instance is patched before user code sees it.
       const wrapAnimeFactory = (factory) => {
+        // Produces a patched anime.js instance from the original factory call.
         const wrapped = function wrappedAnime() {
           // Every anime.js invocation yields a timeline/animation object. Patch
           // the returned instance before exposing it to user code so that any
@@ -160,6 +167,7 @@ const FRAMEWORK_PATCHES = [
             configurable: true,
             enumerable: true,
             writable: true,
+            // Ensures nested timelines created via anime.timeline() inherit the bootstrap patch.
             value: function timelineWrapper() {
               // `anime.timeline()` constructs nested timelines without routing
               // through the main factory function. Mirror the same patch step
@@ -173,13 +181,16 @@ const FRAMEWORK_PATCHES = [
         return wrapped;
       };
 
+      // Replaces window.anime with the wrapped factory while preserving any existing descriptor characteristics.
       const installAnimeInterceptor = (initialValue) => {
         Object.defineProperty(window, 'anime', {
           configurable: true,
           enumerable: true,
+          // Returns the most recent patched anime.js factory exposed to the page.
           get() {
             return automationState.animePatchedFactory;
           },
+          // Replaces the anime.js factory while wrapping it to enforce the bootstrap shim.
           set(value) {
             if (!value) {
               automationState.animePatchedFactory = value;
@@ -230,6 +241,7 @@ const FRAMEWORK_PATCHES = [
   },
 ];
 
+// Confirms the example directory exists so captures have input files to process.
 async function ensureDirectoryAvailable(directoryPath) {
   try {
     await fs.access(directoryPath);
@@ -244,6 +256,7 @@ async function ensureDirectoryAvailable(directoryPath) {
   }
 }
 
+// Reads all HTML animation files within the example directory in sorted order.
 async function collectAnimationFiles(directoryPath) {
   const entries = await fs.readdir(directoryPath, { withFileTypes: true });
 
@@ -253,8 +266,10 @@ async function collectAnimationFiles(directoryPath) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+// Uses the Chrome DevTools Protocol to advance the virtual clock by a specific budget.
 async function advanceVirtualTime(client, budgetMs) {
   return new Promise((resolve, reject) => {
+    // Resolves the promise when the DevTools budget event fires.
     const handleBudgetExpired = () => resolve();
 
     client.once('Emulation.virtualTimeBudgetExpired', handleBudgetExpired);
@@ -271,13 +286,16 @@ async function advanceVirtualTime(client, budgetMs) {
   });
 }
 
+// Adds a Playwright init script that counts requestAnimationFrame ticks for bootstrap tracking.
 async function injectRafProbe(context) {
+  // Sets up instrumentation before any page script runs inside the context.
   await context.addInitScript(() => {
     const automationState = (window.__captureAutomation ||= {});
     automationState.rafTickCount = 0;
 
     const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
 
+    // Wraps requestAnimationFrame so we can count how many ticks occurred before virtual time takes over.
     window.requestAnimationFrame = (callback) =>
       originalRequestAnimationFrame((timestamp) => {
         automationState.rafTickCount += 1;
@@ -286,6 +304,7 @@ async function injectRafProbe(context) {
   });
 }
 
+// Installs any framework-specific patches before page scripts execute.
 async function injectFrameworkPatches(context) {
   for (const patch of FRAMEWORK_PATCHES) {
     try {
@@ -296,6 +315,7 @@ async function injectFrameworkPatches(context) {
   }
 }
 
+// Waits for initial real-time ticks so animations can initialize before virtual time control begins.
 async function waitForAnimationBootstrap(page) {
   if (MAX_INITIAL_REALTIME_WAIT_MS <= 0) {
     return;
@@ -314,6 +334,7 @@ async function waitForAnimationBootstrap(page) {
 
   try {
     await page.waitForFunction(
+      // Waits until the page has observed enough RAF ticks for the bootstrap heuristics.
       (minTicks) =>
         (window.__captureAutomation?.rafTickCount || 0) >= minTicks,
       MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME,
@@ -326,6 +347,7 @@ async function waitForAnimationBootstrap(page) {
   }
 }
 
+// Opens an example file, fast-forwards its animations, and saves a screenshot for the target timestamp.
 async function captureAnimationFile(browser, animationFile) {
   const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
   const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
@@ -362,6 +384,7 @@ async function captureAnimationFile(browser, animationFile) {
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
     await page.evaluate((targetTimeMs) => {
+      // Steps through every Web Animation on the page to lock them to the target timestamp.
       const animations = document.getAnimations();
       for (const animation of animations) {
         try {
@@ -389,6 +412,7 @@ async function captureAnimationFile(browser, animationFile) {
   }
 }
 
+// Prints actionable troubleshooting hints when Chromium fails to start.
 function logChromiumLaunchFailure(error) {
   const message = error?.message || '';
 
@@ -413,6 +437,7 @@ function logChromiumLaunchFailure(error) {
   }
 }
 
+// Orchestrates the capture workflow end-to-end for every example animation.
 (async () => {
   try {
     await ensureDirectoryAvailable(EXAMPLE_DIR);
