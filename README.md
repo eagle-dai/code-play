@@ -67,7 +67,7 @@ Follow these steps to configure your environment and run the script:
    ```bash
    npm run capture:animation -- animejs-virtual-time.html
    ```
-   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. The script writes the screenshot to `tmp/output/<animation-name>-4s.png`.
+   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. The script writes a series of screenshots (100 ms apart by default) such as `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
@@ -77,6 +77,6 @@ The development container used for this check successfully followed the steps ab
 
 1. Installed Node dependencies with `npm install`.
 2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured individual animations with commands such as `npm run capture:animation -- animejs-virtual-time.html`, which produced PNG files like `tmp/output/animejs-virtual-time-4s.png`.
+3. Captured individual animations with commands such as `npm run capture:animation -- animejs-virtual-time.html`, which produced PNG files like `tmp/output/animejs-virtual-time-0000ms.png` and `tmp/output/animejs-virtual-time-4000ms.png`.
 
 These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.
