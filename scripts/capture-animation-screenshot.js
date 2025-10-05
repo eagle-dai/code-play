@@ -6,7 +6,15 @@ const { pathToFileURL } = require('url');
 // Core capture settings. These defaults are chosen to match the reference
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
-const TARGET_TIME_MS = 4_000;
+const DEFAULT_TARGET_TIME_MS = 4_000;
+const TARGET_TIME_MS = (() => {
+  try {
+    return resolveTargetTimeMs();
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+})();
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
@@ -28,6 +36,101 @@ const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
 // complete before taking the screenshot.
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
+
+function resolveTargetTimeMs() {
+  const { milliseconds: cliMilliseconds, seconds: cliSeconds } =
+    parseCliTargetOptions(process.argv.slice(2));
+
+  if (cliMilliseconds != null) {
+    return coerceTimeMs(cliMilliseconds, 'the --target-ms flag');
+  }
+
+  if (cliSeconds != null) {
+    return coerceTimeMs(cliSeconds, 'the --target-seconds flag', 1_000);
+  }
+
+  const envMilliseconds = (process.env.CAPTURE_TARGET_TIME_MS || '').trim();
+  if (envMilliseconds) {
+    return coerceTimeMs(
+      envMilliseconds,
+      'the CAPTURE_TARGET_TIME_MS environment variable'
+    );
+  }
+
+  const envSeconds = (process.env.CAPTURE_TARGET_TIME_SECONDS || '').trim();
+  if (envSeconds) {
+    return coerceTimeMs(
+      envSeconds,
+      'the CAPTURE_TARGET_TIME_SECONDS environment variable',
+      1_000
+    );
+  }
+
+  return DEFAULT_TARGET_TIME_MS;
+}
+
+function parseCliTargetOptions(args) {
+  let milliseconds = null;
+  let seconds = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--target-ms' || token === '--target-milliseconds') {
+      const value = args[index + 1];
+      if (value == null) {
+        throw new Error('Expected a value after the "--target-ms" flag.');
+      }
+      milliseconds = value;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--target-ms=')) {
+      milliseconds = token.slice('--target-ms='.length);
+      continue;
+    }
+
+    if (token.startsWith('--target-milliseconds=')) {
+      milliseconds = token.slice('--target-milliseconds='.length);
+      continue;
+    }
+
+    if (token === '--target-seconds' || token === '--target-s') {
+      const value = args[index + 1];
+      if (value == null) {
+        throw new Error('Expected a value after the "--target-seconds" flag.');
+      }
+      seconds = value;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--target-seconds=')) {
+      seconds = token.slice('--target-seconds='.length);
+      continue;
+    }
+
+    if (token.startsWith('--target-s=')) {
+      seconds = token.slice('--target-s='.length);
+      continue;
+    }
+  }
+
+  return { milliseconds, seconds };
+}
+
+function coerceTimeMs(value, source, multiplier = 1) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new Error(
+      `Invalid target time from ${source}. Expected a non-negative number but received "${value}".`
+    );
+  }
+
+  return Math.round(numericValue * multiplier);
+}
 
 // Patches run before any page script executes. Each entry registers shims for a
 // specific animation framework so that virtual-time fast forwarding matches the
