@@ -406,6 +406,21 @@ async function synchronizeAnimationState(page, targetTimeMs) {
         console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
       }
     }
+
+    const animeFactory = window.anime;
+    if (animeFactory && Array.isArray(animeFactory.running)) {
+      for (const instance of animeFactory.running) {
+        if (!instance || typeof instance.seek !== 'function') {
+          continue;
+        }
+
+        try {
+          instance.seek(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to seek anime.js instance to target time', error);
+        }
+      }
+    }
   }, targetTimeMs);
 }
 
