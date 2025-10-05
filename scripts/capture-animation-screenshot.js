@@ -8,6 +8,8 @@ const { pathToFileURL } = require('url');
 // other animation suites without touching the rest of the workflow.
 const DEFAULT_TARGET_TIME_MS = 4_000;
 const TARGET_TIME_MS = DEFAULT_TARGET_TIME_MS;
+const FRAME_CAPTURE_INTERVAL_MS = 100;
+const INTERSTEP_REALTIME_WAIT_MS = 50;
 const HTML_FILE_PATTERN = /\.html?$/i;
 const ANIMATION_FILE = (() => {
   try {
@@ -338,6 +340,75 @@ async function advanceVirtualTime(client, budgetMs) {
   });
 }
 
+// Produces a monotonically increasing series of timestamps culminating in the target time.
+function buildCaptureTimeline(targetTimeMs, intervalMs) {
+  const sanitizedTarget = Math.max(0, Math.floor(targetTimeMs));
+
+  if (!Number.isFinite(sanitizedTarget)) {
+    return [0];
+  }
+
+  const timeline = [];
+
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    timeline.push(sanitizedTarget);
+    return timeline;
+  }
+
+  const sanitizedInterval = Math.max(1, Math.floor(intervalMs));
+
+  for (let timestamp = 0; timestamp < sanitizedTarget; timestamp += sanitizedInterval) {
+    timeline.push(timestamp);
+  }
+
+  if (timeline.length === 0 || timeline[timeline.length - 1] !== sanitizedTarget) {
+    timeline.push(sanitizedTarget);
+  }
+
+  return timeline;
+}
+
+// Locks requestAnimationFrame and Web Animations state to a specific timestamp before a capture.
+async function synchronizeAnimationState(page, targetTimeMs) {
+  await page.evaluate((targetTimeMs) => {
+    const automationState = window.__captureAutomation;
+
+    if (automationState?.setPerformanceNowOverride) {
+      try {
+        automationState.setPerformanceNowOverride(targetTimeMs);
+      } catch (error) {
+        console.warn('Failed to override performance.now()', error);
+      }
+    }
+
+    const animations = document.getAnimations();
+    for (const animation of animations) {
+      try {
+        animation.currentTime = targetTimeMs;
+        animation.pause();
+      } catch (error) {
+        console.warn('Failed to fast-forward animation', error);
+      }
+    }
+
+    if (automationState?.flushRafCallbacks) {
+      try {
+        automationState.flushRafCallbacks(targetTimeMs);
+      } catch (error) {
+        console.warn('Failed to flush requestAnimationFrame callbacks', error);
+      }
+    }
+
+    if (automationState?.runRafCallbacksImmediately) {
+      try {
+        automationState.runRafCallbacksImmediately(targetTimeMs);
+      } catch (error) {
+        console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
+      }
+    }
+  }, targetTimeMs);
+}
+
 // Adds a Playwright init script that counts requestAnimationFrame ticks for bootstrap tracking.
 async function injectRafProbe(context) {
   // Sets up instrumentation before any page script runs inside the context.
@@ -503,7 +574,7 @@ async function waitForAnimationBootstrap(page) {
   }
 }
 
-// Opens an example file, fast-forwards its animations, and saves a screenshot for the target timestamp.
+// Opens an example file, fast-forwards its animations, and saves screenshots for each capture timestamp.
 async function captureAnimationFile(browser, animationFile) {
   const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
   const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
@@ -524,71 +595,59 @@ async function captureAnimationFile(browser, animationFile) {
 
     const client = await context.newCDPSession(page);
 
-    const currentVirtualTime = await page.evaluate(() => performance.now());
-
     await client.send('Emulation.setVirtualTimePolicy', {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
+      initialVirtualTime: 0,
     });
 
-    const remainingBudget = Math.max(0, TARGET_TIME_MS - currentVirtualTime);
-    if (remainingBudget > 0) {
-      await advanceVirtualTime(client, remainingBudget);
-    }
-
-    await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
-
-    await page.evaluate((targetTimeMs) => {
-      const automationState = window.__captureAutomation;
-
-      if (automationState?.setPerformanceNowOverride) {
-        try {
-          automationState.setPerformanceNowOverride(targetTimeMs);
-        } catch (error) {
-          console.warn('Failed to override performance.now()', error);
-        }
-      }
-
-      // Steps through every Web Animation on the page to lock them to the target timestamp.
-      const animations = document.getAnimations();
-      for (const animation of animations) {
-        try {
-          animation.currentTime = targetTimeMs;
-          animation.pause();
-        } catch (error) {
-          console.warn('Failed to fast-forward animation', error);
-        }
-      }
-
-      if (automationState?.flushRafCallbacks) {
-        try {
-          automationState.flushRafCallbacks(targetTimeMs);
-        } catch (error) {
-          console.warn('Failed to flush requestAnimationFrame callbacks', error);
-        }
-      }
-
-      if (automationState?.runRafCallbacksImmediately) {
-        try {
-          automationState.runRafCallbacksImmediately(targetTimeMs);
-        } catch (error) {
-          console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
-        }
-      }
-    }, TARGET_TIME_MS);
-
+    const captureTimeline = buildCaptureTimeline(
+      TARGET_TIME_MS,
+      FRAME_CAPTURE_INTERVAL_MS
+    );
+    const finalTimestamp = captureTimeline[captureTimeline.length - 1] || 0;
+    const padLength = Math.max(4, String(finalTimestamp).length);
 
     const safeName = animationFile
       .replace(/[\\/]/g, '-')
       .replace(HTML_FILE_PATTERN, '')
       .trim();
-    const targetSeconds = Math.round(TARGET_TIME_MS / 1000);
-    const screenshotFilename = `${safeName || 'animation'}-${targetSeconds}s.png`;
-    const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
+    const screenshotBasename = safeName || 'animation';
+    const screenshotPaths = [];
+    let currentVirtualTime = 0;
 
-    await page.screenshot({ path: screenshotPath });
+    for (const targetTimestamp of captureTimeline) {
+      const normalizedTimestamp = Math.max(0, Math.round(targetTimestamp));
+      const delta = normalizedTimestamp - currentVirtualTime;
 
-    return screenshotPath;
+      if (delta > 0) {
+        await advanceVirtualTime(client, delta);
+        currentVirtualTime = normalizedTimestamp;
+      }
+
+      const settleDelay =
+        normalizedTimestamp === finalTimestamp
+          ? POST_VIRTUAL_TIME_WAIT_MS
+          : INTERSTEP_REALTIME_WAIT_MS;
+
+      if (settleDelay > 0) {
+        await page.waitForTimeout(settleDelay);
+      }
+
+      await synchronizeAnimationState(page, normalizedTimestamp);
+
+      const timestampLabel = String(normalizedTimestamp).padStart(
+        padLength,
+        '0'
+      );
+      const screenshotFilename = `${screenshotBasename}-${timestampLabel}ms.png`;
+      const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
+
+      await page.screenshot({ path: screenshotPath });
+      screenshotPaths.push(screenshotPath);
+    }
+
+    return screenshotPaths;
   } finally {
     await context.close();
   }
@@ -656,8 +715,16 @@ function logChromiumLaunchFailure(error) {
   }
 
   try {
-    const screenshotPath = await captureAnimationFile(browser, ANIMATION_FILE);
-    console.log(`Captured ${ANIMATION_FILE} -> ${screenshotPath}`);
+    const screenshotPaths = await captureAnimationFile(browser, ANIMATION_FILE);
+
+    if (screenshotPaths.length === 0) {
+      console.warn(`No screenshots were generated for ${ANIMATION_FILE}.`);
+    } else if (screenshotPaths.length === 1) {
+      console.log(`Captured ${ANIMATION_FILE} -> ${screenshotPaths[0]}`);
+    } else {
+      const formatted = screenshotPaths.map((file) => `  - ${file}`).join('\n');
+      console.log(`Captured ${ANIMATION_FILE} ->\n${formatted}`);
+    }
   } catch (error) {
     console.error(`Failed to capture ${ANIMATION_FILE}:`, error);
     process.exitCode = 1;
