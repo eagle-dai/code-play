@@ -72,7 +72,7 @@ Follow these steps to configure your environment and run the script:
      ```bash
      npm run capture:animation -- --target-seconds 2
      ```
-     Setting `CAPTURE_TARGET_TIME_MS` or `CAPTURE_TARGET_TIME_SECONDS` before running the script provides the same override for automated environments.
+     Setting `CAPTURE_TARGET_TIME_MS` before running the script provides the same override for automated environments.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 

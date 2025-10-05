@@ -57,15 +57,6 @@ function resolveTargetTimeMs() {
     );
   }
 
-  const envSeconds = (process.env.CAPTURE_TARGET_TIME_SECONDS || '').trim();
-  if (envSeconds) {
-    return coerceTimeMs(
-      envSeconds,
-      'the CAPTURE_TARGET_TIME_SECONDS environment variable',
-      1_000
-    );
-  }
-
   return DEFAULT_TARGET_TIME_MS;
 }
 
