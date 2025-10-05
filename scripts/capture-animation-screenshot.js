@@ -7,9 +7,11 @@ const { pathToFileURL } = require('url');
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
 const DEFAULT_TARGET_TIME_MS = 4_000;
-const TARGET_TIME_MS = (() => {
+const TARGET_TIME_MS = DEFAULT_TARGET_TIME_MS;
+const HTML_FILE_PATTERN = /\.html?$/i;
+const ANIMATION_FILE = (() => {
   try {
-    return resolveTargetTimeMs();
+    return resolveAnimationFilename(process.argv.slice(2));
   } catch (error) {
     console.error(error.message);
     process.exit(1);
@@ -35,92 +37,35 @@ const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
 // settle so mutation observers or microtasks triggered by the last frame can
 // complete before taking the screenshot.
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
-const HTML_FILE_PATTERN = /\.html?$/i;
 
-function resolveTargetTimeMs() {
-  const { milliseconds: cliMilliseconds, seconds: cliSeconds } =
-    parseCliTargetOptions(process.argv.slice(2));
-
-  if (cliMilliseconds != null) {
-    return coerceTimeMs(cliMilliseconds, 'the --target-ms flag');
-  }
-
-  if (cliSeconds != null) {
-    return coerceTimeMs(cliSeconds, 'the --target-seconds flag', 1_000);
-  }
-
-  const envMilliseconds = (process.env.CAPTURE_TARGET_TIME_MS || '').trim();
-  if (envMilliseconds) {
-    return coerceTimeMs(
-      envMilliseconds,
-      'the CAPTURE_TARGET_TIME_MS environment variable'
-    );
-  }
-
-  return DEFAULT_TARGET_TIME_MS;
-}
-
-function parseCliTargetOptions(args) {
-  let milliseconds = null;
-  let seconds = null;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const token = args[index];
-
-    if (token === '--target-ms' || token === '--target-milliseconds') {
-      const value = args[index + 1];
-      if (value == null) {
-        throw new Error('Expected a value after the "--target-ms" flag.');
-      }
-      milliseconds = value;
-      index += 1;
-      continue;
-    }
-
-    if (token.startsWith('--target-ms=')) {
-      milliseconds = token.slice('--target-ms='.length);
-      continue;
-    }
-
-    if (token.startsWith('--target-milliseconds=')) {
-      milliseconds = token.slice('--target-milliseconds='.length);
-      continue;
-    }
-
-    if (token === '--target-seconds' || token === '--target-s') {
-      const value = args[index + 1];
-      if (value == null) {
-        throw new Error('Expected a value after the "--target-seconds" flag.');
-      }
-      seconds = value;
-      index += 1;
-      continue;
-    }
-
-    if (token.startsWith('--target-seconds=')) {
-      seconds = token.slice('--target-seconds='.length);
-      continue;
-    }
-
-    if (token.startsWith('--target-s=')) {
-      seconds = token.slice('--target-s='.length);
-      continue;
-    }
-  }
-
-  return { milliseconds, seconds };
-}
-
-function coerceTimeMs(value, source, multiplier = 1) {
-  const numericValue = Number(value);
-
-  if (!Number.isFinite(numericValue) || numericValue < 0) {
+function resolveAnimationFilename(args) {
+  if (args.length === 0) {
     throw new Error(
-      `Invalid target time from ${source}. Expected a non-negative number but received "${value}".`
+      'Expected the HTML file name as the first argument. Example: "npm run capture:animation -- animejs-virtual-time.html"'
     );
   }
 
-  return Math.round(numericValue * multiplier);
+  if (args.length > 1) {
+    throw new Error(
+      `Received unexpected extra arguments after "${args[0]}". Provide only the HTML file name to capture.`
+    );
+  }
+
+  const animationFile = args[0];
+
+  if (!HTML_FILE_PATTERN.test(animationFile)) {
+    throw new Error(
+      `The argument "${animationFile}" does not look like an HTML file. Provide a file ending in .html or .htm.`
+    );
+  }
+
+  if (animationFile.includes('/') || animationFile.includes(path.sep)) {
+    throw new Error(
+      `Provide only the HTML file name, not a path. Received "${animationFile}".`
+    );
+  }
+
+  return animationFile;
 }
 
 // Patches run before any page script executes. Each entry registers shims for a
@@ -349,14 +294,28 @@ async function ensureDirectoryAvailable(directoryPath) {
   }
 }
 
-// Reads all HTML animation files within the example directory in sorted order.
-async function collectAnimationFiles(directoryPath) {
-  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+// Ensures the requested animation HTML file is available under the example directory.
+async function ensureAnimationFileAvailable(directoryPath, animationFile) {
+  const animationPath = path.resolve(directoryPath, animationFile);
 
-  return entries
-    .filter((entry) => entry.isFile() && HTML_FILE_PATTERN.test(entry.name))
-    .map((entry) => entry.name)
-    .sort((a, b) => a.localeCompare(b));
+  try {
+    const stats = await fs.stat(animationPath);
+    if (!stats.isFile()) {
+      throw new Error(
+        `Expected "${animationFile}" to be a file inside ${directoryPath}.`
+      );
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        `Unable to find "${animationFile}" in ${directoryPath}. Ensure the file exists before running the capture script.`
+      );
+    }
+
+    throw error;
+  }
+
+  return animationPath;
 }
 
 // Uses the Chrome DevTools Protocol to advance the virtual clock by a specific budget.
@@ -660,7 +619,7 @@ function logChromiumLaunchFailure(error) {
   }
 }
 
-// Orchestrates the capture workflow end-to-end for every example animation.
+// Orchestrates the capture workflow end-to-end for the requested animation.
 (async () => {
   try {
     await ensureDirectoryAvailable(EXAMPLE_DIR);
@@ -670,17 +629,10 @@ function logChromiumLaunchFailure(error) {
     return;
   }
 
-  let animationFiles;
   try {
-    animationFiles = await collectAnimationFiles(EXAMPLE_DIR);
+    await ensureAnimationFileAvailable(EXAMPLE_DIR, ANIMATION_FILE);
   } catch (error) {
-    console.error('Unable to read animation examples:', error);
-    process.exitCode = 1;
-    return;
-  }
-
-  if (animationFiles.length === 0) {
-    console.error('No animation HTML files found in assets/example');
+    console.error(error.message);
     process.exitCode = 1;
     return;
   }
@@ -703,27 +655,14 @@ function logChromiumLaunchFailure(error) {
     return;
   }
 
-  const failures = [];
-
   try {
-    for (const animationFile of animationFiles) {
-      try {
-        const screenshotPath = await captureAnimationFile(browser, animationFile);
-        console.log(`Captured ${animationFile} -> ${screenshotPath}`);
-      } catch (error) {
-        failures.push(animationFile);
-        console.error(`Failed to capture ${animationFile}:`, error);
-      }
-    }
+    const screenshotPath = await captureAnimationFile(browser, ANIMATION_FILE);
+    console.log(`Captured ${ANIMATION_FILE} -> ${screenshotPath}`);
+  } catch (error) {
+    console.error(`Failed to capture ${ANIMATION_FILE}:`, error);
+    process.exitCode = 1;
   } finally {
     await browser.close();
-  }
-
-  if (failures.length > 0) {
-    console.error(
-      `Encountered errors while capturing ${failures.length} animation(s): ${failures.join(', ')}`
-    );
-    process.exitCode = 1;
   }
 })();
 

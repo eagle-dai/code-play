@@ -32,7 +32,7 @@ DOM state as a human viewer would see at the default 4-second mark.
 
 ## Running the animation capture script
 
-The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the default 4-second capture, which works reliably even when animations rely on per-frame state updates.
+The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the default 4-second capture, which works reliably even when animations rely on per-frame state updates.
 
 Follow these steps to configure your environment and run the script:
 
@@ -63,16 +63,11 @@ Follow these steps to configure your environment and run the script:
      PLAYWRIGHT_CHROME_EXECUTABLE="/usr/bin/google-chrome-stable" npm run capture:animation
      ```
      When this variable is present the channel setting is ignored.
-6. **Run the capture script:**
+6. **Run the capture script for a specific example:**
    ```bash
-   npm run capture:animation
+   npm run capture:animation -- animejs-virtual-time.html
    ```
-   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png` by default.
-   * To capture a different timestamp, pass the desired moment via CLI or environment variable. For example, capture the 2-second frame with:
-     ```bash
-     npm run capture:animation -- --target-seconds 2
-     ```
-     Setting `CAPTURE_TARGET_TIME_MS` before running the script provides the same override for automated environments.
+   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. The script writes the screenshot to `tmp/output/<animation-name>-4s.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
@@ -82,6 +77,6 @@ The development container used for this check successfully followed the steps ab
 
 1. Installed Node dependencies with `npm install`.
 2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured the animation set with `npm run capture:animation`, which produced PNG files such as `tmp/output/css-animation-4s.png` and `tmp/output/web-animations-virtual-time-4s.png`.
+3. Captured individual animations with commands such as `npm run capture:animation -- animejs-virtual-time.html`, which produced PNG files like `tmp/output/animejs-virtual-time-4s.png`.
 
 These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.
