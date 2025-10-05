@@ -6,7 +6,15 @@ const { pathToFileURL } = require('url');
 // Core capture settings. These defaults are chosen to match the reference
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
-const TARGET_TIME_MS = 4_000;
+const DEFAULT_TARGET_TIME_MS = 4_000;
+const TARGET_TIME_MS = (() => {
+  try {
+    return resolveTargetTimeMs();
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+})();
 const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
 const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
 const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
@@ -28,6 +36,92 @@ const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
 // complete before taking the screenshot.
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
+
+function resolveTargetTimeMs() {
+  const { milliseconds: cliMilliseconds, seconds: cliSeconds } =
+    parseCliTargetOptions(process.argv.slice(2));
+
+  if (cliMilliseconds != null) {
+    return coerceTimeMs(cliMilliseconds, 'the --target-ms flag');
+  }
+
+  if (cliSeconds != null) {
+    return coerceTimeMs(cliSeconds, 'the --target-seconds flag', 1_000);
+  }
+
+  const envMilliseconds = (process.env.CAPTURE_TARGET_TIME_MS || '').trim();
+  if (envMilliseconds) {
+    return coerceTimeMs(
+      envMilliseconds,
+      'the CAPTURE_TARGET_TIME_MS environment variable'
+    );
+  }
+
+  return DEFAULT_TARGET_TIME_MS;
+}
+
+function parseCliTargetOptions(args) {
+  let milliseconds = null;
+  let seconds = null;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--target-ms' || token === '--target-milliseconds') {
+      const value = args[index + 1];
+      if (value == null) {
+        throw new Error('Expected a value after the "--target-ms" flag.');
+      }
+      milliseconds = value;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--target-ms=')) {
+      milliseconds = token.slice('--target-ms='.length);
+      continue;
+    }
+
+    if (token.startsWith('--target-milliseconds=')) {
+      milliseconds = token.slice('--target-milliseconds='.length);
+      continue;
+    }
+
+    if (token === '--target-seconds' || token === '--target-s') {
+      const value = args[index + 1];
+      if (value == null) {
+        throw new Error('Expected a value after the "--target-seconds" flag.');
+      }
+      seconds = value;
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith('--target-seconds=')) {
+      seconds = token.slice('--target-seconds='.length);
+      continue;
+    }
+
+    if (token.startsWith('--target-s=')) {
+      seconds = token.slice('--target-s='.length);
+      continue;
+    }
+  }
+
+  return { milliseconds, seconds };
+}
+
+function coerceTimeMs(value, source, multiplier = 1) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new Error(
+      `Invalid target time from ${source}. Expected a non-negative number but received "${value}".`
+    );
+  }
+
+  return Math.round(numericValue * multiplier);
+}
 
 // Patches run before any page script executes. Each entry registers shims for a
 // specific animation framework so that virtual-time fast forwarding matches the
@@ -293,13 +387,117 @@ async function injectRafProbe(context) {
     automationState.rafTickCount = 0;
 
     const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    const originalCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    const originalPerformanceNow = performance.now.bind(performance);
+    automationState.originalPerformanceNow = originalPerformanceNow;
+    automationState.performanceNowOrigin = performance.now();
 
-    // Wraps requestAnimationFrame so we can count how many ticks occurred before virtual time takes over.
-    window.requestAnimationFrame = (callback) =>
-      originalRequestAnimationFrame((timestamp) => {
+    let firstPerformanceNow = null;
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => {
+        const value = originalPerformanceNow();
+        if (firstPerformanceNow === null) {
+          firstPerformanceNow = value;
+          automationState.firstPerformanceNow = value;
+        }
+        return value;
+      },
+    });
+
+    const pendingCallbacks = new Map();
+    const registeredCallbacks = new Set();
+    automationState.disableRafScheduling = false;
+
+    window.requestAnimationFrame = (callback) => {
+      if (automationState.disableRafScheduling) {
+        return 0;
+      }
+
+      registeredCallbacks.add(callback);
+
+      let handle;
+      const wrapped = (timestamp) => {
         automationState.rafTickCount += 1;
+        pendingCallbacks.delete(handle);
         return callback(timestamp);
-      });
+      };
+      handle = originalRequestAnimationFrame((timestamp) => wrapped(timestamp));
+      pendingCallbacks.set(handle, wrapped);
+      return handle;
+    };
+
+    window.cancelAnimationFrame = (handle) => {
+      pendingCallbacks.delete(handle);
+      return originalCancelAnimationFrame(handle);
+    };
+
+    automationState.setPerformanceNowOverride = (fixedTimestamp) => {
+      if (typeof fixedTimestamp === 'number') {
+        const origin =
+          typeof automationState.firstPerformanceNow === 'number'
+            ? automationState.firstPerformanceNow
+            : typeof automationState.performanceNowOrigin === 'number'
+            ? automationState.performanceNowOrigin
+            : 0;
+        Object.defineProperty(performance, 'now', {
+          configurable: true,
+          value: () => origin + fixedTimestamp,
+        });
+      } else {
+        Object.defineProperty(performance, 'now', {
+          configurable: true,
+          value: originalPerformanceNow,
+        });
+      }
+    };
+
+    automationState.flushRafCallbacks = (targetTimestamp) => {
+      const iterationLimit = 1000;
+      let iterations = 0;
+
+      while (pendingCallbacks.size > 0 && iterations < iterationLimit) {
+        const callbacks = Array.from(pendingCallbacks.values());
+        pendingCallbacks.clear();
+
+        for (const wrapped of callbacks) {
+          try {
+            wrapped(targetTimestamp);
+          } catch (error) {
+            console.warn('Failed to flush requestAnimationFrame callback', error);
+          }
+        }
+
+        iterations += 1;
+      }
+
+      if (pendingCallbacks.size > 0) {
+        console.warn(
+          'Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap.'
+        );
+      }
+    };
+
+    automationState.runRafCallbacksImmediately = (targetTimestamp) => {
+      if (registeredCallbacks.size === 0) {
+        return;
+      }
+
+      automationState.disableRafScheduling = true;
+      pendingCallbacks.clear();
+
+      try {
+        for (const callback of Array.from(registeredCallbacks)) {
+          try {
+            callback.call(window, targetTimestamp);
+          } catch (error) {
+            console.warn('Failed to invoke requestAnimationFrame callback directly', error);
+          }
+        }
+      } finally {
+        automationState.disableRafScheduling = false;
+      }
+    };
   });
 }
 
@@ -367,16 +565,31 @@ async function captureAnimationFile(browser, animationFile) {
 
     const client = await context.newCDPSession(page);
 
+    const currentVirtualTime = await page.evaluate(() => performance.now());
+
     await client.send('Emulation.setVirtualTimePolicy', {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
     });
 
-    await advanceVirtualTime(client, TARGET_TIME_MS);
+    const remainingBudget = Math.max(0, TARGET_TIME_MS - currentVirtualTime);
+    if (remainingBudget > 0) {
+      await advanceVirtualTime(client, remainingBudget);
+    }
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
     await page.evaluate((targetTimeMs) => {
+      const automationState = window.__captureAutomation;
+
+      if (automationState?.setPerformanceNowOverride) {
+        try {
+          automationState.setPerformanceNowOverride(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to override performance.now()', error);
+        }
+      }
+
       // Steps through every Web Animation on the page to lock them to the target timestamp.
       const animations = document.getAnimations();
       for (const animation of animations) {
@@ -387,7 +600,24 @@ async function captureAnimationFile(browser, animationFile) {
           console.warn('Failed to fast-forward animation', error);
         }
       }
+
+      if (automationState?.flushRafCallbacks) {
+        try {
+          automationState.flushRafCallbacks(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to flush requestAnimationFrame callbacks', error);
+        }
+      }
+
+      if (automationState?.runRafCallbacksImmediately) {
+        try {
+          automationState.runRafCallbacksImmediately(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
+        }
+      }
     }, TARGET_TIME_MS);
+
 
     const safeName = animationFile
       .replace(/[\\/]/g, '-')

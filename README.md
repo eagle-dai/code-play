@@ -28,11 +28,11 @@ restores missing lifecycle hooks:
   they do during real playback.
 
 With these two pieces in place, virtual time captures now reproduce the same
-DOM state as a human viewer would see at the 4-second mark.
+DOM state as a human viewer would see at the default 4-second mark.
 
 ## Running the animation capture script
 
-The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the 4-second capture, which works reliably even when animations rely on per-frame state updates.
+The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of any HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the default 4-second capture, which works reliably even when animations rely on per-frame state updates.
 
 Follow these steps to configure your environment and run the script:
 
@@ -67,7 +67,12 @@ Follow these steps to configure your environment and run the script:
    ```bash
    npm run capture:animation
    ```
-   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png`.
+   The script automatically iterates over every HTML example in `assets/example/` and writes screenshots to `tmp/output/<animation-name>-4s.png` by default.
+   * To capture a different timestamp, pass the desired moment via CLI or environment variable. For example, capture the 2-second frame with:
+     ```bash
+     npm run capture:animation -- --target-seconds 2
+     ```
+     Setting `CAPTURE_TARGET_TIME_MS` before running the script provides the same override for automated environments.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
