@@ -32,7 +32,7 @@ DOM state as a human viewer would see at the default 4-second mark.
 
 ## Running the animation capture script
 
-The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save a screenshot. The script advances virtual time in 250 ms steps before taking the default 4-second capture, which works reliably even when animations rely on per-frame state updates.
+The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save screenshots. Instead of jumping straight to the end, the script now advances virtual time in 100 ms increments and records a frame at each step, culminating in the 4-second capture. This mirrors the state changes an animation would experience frame by frame, which keeps lifecycle-driven UI in sync with real playback.
 
 Follow these steps to configure your environment and run the script:
 
@@ -71,12 +71,10 @@ Follow these steps to configure your environment and run the script:
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
-## Environment setup verification
+## Verifying your setup
 
-The development container used for this check successfully followed the steps above:
+After following the installation steps, use the commands below to confirm your environment is ready:
 
-1. Installed Node dependencies with `npm install`.
-2. Downloaded the Chromium browser binaries via `npx playwright install chromium` and installed the Linux system libraries reported by Playwright using `npx playwright install-deps`.
-3. Captured individual animations with commands such as `npm run capture:animation -- animejs-virtual-time.html`, which produced PNG files like `tmp/output/animejs-virtual-time-0000ms.png` and `tmp/output/animejs-virtual-time-4000ms.png`.
-
-These commands complete without errors, confirming that the environment can be prepared according to the workflow described in `AGENTS.md`.
+1. Install dependencies with `npm install`.
+2. Install the Chromium browser binary with `npx playwright install chromium` (and, on Linux, system libraries via `npx playwright install-deps`).
+3. Capture an example animation with `npm run capture:animation -- animejs-virtual-time.html`. You should see output similar to `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`, representing the 100 ms timeline.
