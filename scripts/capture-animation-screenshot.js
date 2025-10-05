@@ -396,13 +396,117 @@ async function injectRafProbe(context) {
     automationState.rafTickCount = 0;
 
     const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    const originalCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    const originalPerformanceNow = performance.now.bind(performance);
+    automationState.originalPerformanceNow = originalPerformanceNow;
+    automationState.performanceNowOrigin = performance.now();
 
-    // Wraps requestAnimationFrame so we can count how many ticks occurred before virtual time takes over.
-    window.requestAnimationFrame = (callback) =>
-      originalRequestAnimationFrame((timestamp) => {
+    let firstPerformanceNow = null;
+    Object.defineProperty(performance, 'now', {
+      configurable: true,
+      value: () => {
+        const value = originalPerformanceNow();
+        if (firstPerformanceNow === null) {
+          firstPerformanceNow = value;
+          automationState.firstPerformanceNow = value;
+        }
+        return value;
+      },
+    });
+
+    const pendingCallbacks = new Map();
+    const registeredCallbacks = new Set();
+    automationState.disableRafScheduling = false;
+
+    window.requestAnimationFrame = (callback) => {
+      if (automationState.disableRafScheduling) {
+        return 0;
+      }
+
+      registeredCallbacks.add(callback);
+
+      let handle;
+      const wrapped = (timestamp) => {
         automationState.rafTickCount += 1;
+        pendingCallbacks.delete(handle);
         return callback(timestamp);
-      });
+      };
+      handle = originalRequestAnimationFrame((timestamp) => wrapped(timestamp));
+      pendingCallbacks.set(handle, wrapped);
+      return handle;
+    };
+
+    window.cancelAnimationFrame = (handle) => {
+      pendingCallbacks.delete(handle);
+      return originalCancelAnimationFrame(handle);
+    };
+
+    automationState.setPerformanceNowOverride = (fixedTimestamp) => {
+      if (typeof fixedTimestamp === 'number') {
+        const origin =
+          typeof automationState.firstPerformanceNow === 'number'
+            ? automationState.firstPerformanceNow
+            : typeof automationState.performanceNowOrigin === 'number'
+            ? automationState.performanceNowOrigin
+            : 0;
+        Object.defineProperty(performance, 'now', {
+          configurable: true,
+          value: () => origin + fixedTimestamp,
+        });
+      } else {
+        Object.defineProperty(performance, 'now', {
+          configurable: true,
+          value: originalPerformanceNow,
+        });
+      }
+    };
+
+    automationState.flushRafCallbacks = (targetTimestamp) => {
+      const iterationLimit = 1000;
+      let iterations = 0;
+
+      while (pendingCallbacks.size > 0 && iterations < iterationLimit) {
+        const callbacks = Array.from(pendingCallbacks.values());
+        pendingCallbacks.clear();
+
+        for (const wrapped of callbacks) {
+          try {
+            wrapped(targetTimestamp);
+          } catch (error) {
+            console.warn('Failed to flush requestAnimationFrame callback', error);
+          }
+        }
+
+        iterations += 1;
+      }
+
+      if (pendingCallbacks.size > 0) {
+        console.warn(
+          'Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap.'
+        );
+      }
+    };
+
+    automationState.runRafCallbacksImmediately = (targetTimestamp) => {
+      if (registeredCallbacks.size === 0) {
+        return;
+      }
+
+      automationState.disableRafScheduling = true;
+      pendingCallbacks.clear();
+
+      try {
+        for (const callback of Array.from(registeredCallbacks)) {
+          try {
+            callback.call(window, targetTimestamp);
+          } catch (error) {
+            console.warn('Failed to invoke requestAnimationFrame callback directly', error);
+          }
+        }
+      } finally {
+        automationState.disableRafScheduling = false;
+      }
+    };
   });
 }
 
@@ -470,16 +574,31 @@ async function captureAnimationFile(browser, animationFile) {
 
     const client = await context.newCDPSession(page);
 
+    const currentVirtualTime = await page.evaluate(() => performance.now());
+
     await client.send('Emulation.setVirtualTimePolicy', {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
     });
 
-    await advanceVirtualTime(client, TARGET_TIME_MS);
+    const remainingBudget = Math.max(0, TARGET_TIME_MS - currentVirtualTime);
+    if (remainingBudget > 0) {
+      await advanceVirtualTime(client, remainingBudget);
+    }
 
     await page.waitForTimeout(POST_VIRTUAL_TIME_WAIT_MS);
 
     await page.evaluate((targetTimeMs) => {
+      const automationState = window.__captureAutomation;
+
+      if (automationState?.setPerformanceNowOverride) {
+        try {
+          automationState.setPerformanceNowOverride(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to override performance.now()', error);
+        }
+      }
+
       // Steps through every Web Animation on the page to lock them to the target timestamp.
       const animations = document.getAnimations();
       for (const animation of animations) {
@@ -490,7 +609,24 @@ async function captureAnimationFile(browser, animationFile) {
           console.warn('Failed to fast-forward animation', error);
         }
       }
+
+      if (automationState?.flushRafCallbacks) {
+        try {
+          automationState.flushRafCallbacks(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to flush requestAnimationFrame callbacks', error);
+        }
+      }
+
+      if (automationState?.runRafCallbacksImmediately) {
+        try {
+          automationState.runRafCallbacksImmediately(targetTimeMs);
+        } catch (error) {
+          console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
+        }
+      }
     }, TARGET_TIME_MS);
+
 
     const safeName = animationFile
       .replace(/[\\/]/g, '-')
