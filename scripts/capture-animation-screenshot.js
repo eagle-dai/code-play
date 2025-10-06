@@ -1,16 +1,17 @@
-const { chromium } = require('playwright');
-const fs = require('fs/promises');
-const path = require('path');
-const { pathToFileURL } = require('url');
+const { chromium } = require("playwright");
+const fs = require("fs/promises");
+const path = require("path");
+const { pathToFileURL } = require("url");
 
 // Core capture settings. These defaults are chosen to match the reference
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
 const DEFAULT_TARGET_TIME_MS = 4_000;
 const HTML_FILE_PATTERN = /\.html?$/i;
+
 const DEFAULT_CAPTURE_CONFIG = Object.freeze({
   targetTimeMs: DEFAULT_TARGET_TIME_MS,
-  frameCaptureIntervalMs: 100,
+  frameCaptureIntervalMs: 200,
   interstepRealtimeWaitMs: 50,
   // Real-time pre-roll before virtual time is enabled. Some animation frameworks only stabilize
   // after several requestAnimationFrame ticks, so we give them a configurable window.
@@ -19,16 +20,16 @@ const DEFAULT_CAPTURE_CONFIG = Object.freeze({
   minRafTicksBeforeVirtualTime: 30,
   // Once the target virtual timestamp is reached, give the page a final moment to settle before taking screenshots.
   postVirtualTimeWaitMs: 1_000,
-  exampleDir: path.resolve(__dirname, '..', 'assets', 'example'),
-  outputDir: path.resolve(__dirname, '..', 'tmp', 'output'),
+  exampleDir: path.resolve(__dirname, "..", "assets", "example"),
+  outputDir: path.resolve(__dirname, "..", "tmp", "output"),
   viewport: Object.freeze({ width: 320, height: 240 }),
 });
 
 // Builds an immutable configuration object for the capture workflow based on CLI args and environment variables.
 function buildCaptureConfig(argv, env = process.env) {
   const animationPattern = resolveAnimationPattern(argv);
-  const browserChannel = (env.PLAYWRIGHT_BROWSER_CHANNEL || '').trim();
-  const browserExecutablePath = (env.PLAYWRIGHT_CHROME_EXECUTABLE || '').trim();
+  const browserChannel = (env.PLAYWRIGHT_BROWSER_CHANNEL || "").trim();
+  const browserExecutablePath = (env.PLAYWRIGHT_CHROME_EXECUTABLE || "").trim();
 
   return Object.freeze({
     animationPattern,
@@ -40,7 +41,8 @@ function buildCaptureConfig(argv, env = process.env) {
     postVirtualTimeWaitMs: DEFAULT_CAPTURE_CONFIG.postVirtualTimeWaitMs,
     minInitialRealtimeWaitMs: DEFAULT_CAPTURE_CONFIG.minInitialRealtimeWaitMs,
     maxInitialRealtimeWaitMs: DEFAULT_CAPTURE_CONFIG.maxInitialRealtimeWaitMs,
-    minRafTicksBeforeVirtualTime: DEFAULT_CAPTURE_CONFIG.minRafTicksBeforeVirtualTime,
+    minRafTicksBeforeVirtualTime:
+      DEFAULT_CAPTURE_CONFIG.minRafTicksBeforeVirtualTime,
     exampleDir: DEFAULT_CAPTURE_CONFIG.exampleDir,
     outputDir: DEFAULT_CAPTURE_CONFIG.outputDir,
     viewport: { ...DEFAULT_CAPTURE_CONFIG.viewport },
@@ -62,13 +64,13 @@ function resolveAnimationPattern(args) {
 
   const animationPattern = args[0];
 
-  if (animationPattern.includes('/') || animationPattern.includes(path.sep)) {
+  if (animationPattern.includes("/") || animationPattern.includes(path.sep)) {
     throw new Error(
       `Provide only the HTML file name, not a path. Received "${animationPattern}".`
     );
   }
 
-  const validationSample = animationPattern.replace(/[\*\?]/g, 'a');
+  const validationSample = animationPattern.replace(/[\*\?]/g, "a");
   if (!HTML_FILE_PATTERN.test(validationSample)) {
     throw new Error(
       `The argument "${animationPattern}" does not look like an HTML file. Provide a file ending in .html or .htm.`
@@ -83,9 +85,9 @@ function containsWildcards(pattern) {
 }
 
 function wildcardToRegExp(pattern) {
-  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const translated = escaped.replace(/\\\*/g, '.*').replace(/\\\?/g, '.');
-  return new RegExp(`^${translated}$`, 'i');
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const translated = escaped.replace(/\\\*/g, ".*").replace(/\\\?/g, ".");
+  return new RegExp(`^${translated}$`, "i");
 }
 
 // Creates browser launch options derived from the resolved configuration.
@@ -106,7 +108,7 @@ function buildBrowserLaunchOptions(config) {
 // observable behavior of real-time playback.
 const FRAMEWORK_PATCHES = [
   {
-    name: 'anime.js lifecycle bootstrap hooks',
+    name: "anime.js lifecycle bootstrap hooks",
     // Injects shims so anime.js timelines behave correctly when virtual time is fast-forwarded.
     initScript: () => {
       const automationState = (window.__captureAutomation ||= {});
@@ -118,17 +120,21 @@ const FRAMEWORK_PATCHES = [
       automationState.animeLifecyclePatched = true;
 
       const patchedInstances = new WeakSet();
-      const trackedInstances =
-        (automationState.animeTrackedInstances ||= new Set());
+      const trackedInstances = (automationState.animeTrackedInstances ||=
+        new Set());
 
       automationState.getTrackedAnimeInstances = () =>
         Array.from(trackedInstances).filter(
-          (instance) => instance && typeof instance === 'object'
+          (instance) => instance && typeof instance === "object"
         );
 
       // Recursively decorates an anime.js instance and its children so bootstrap state is preserved after virtual seeks.
       const patchInstance = (instance) => {
-        if (!instance || typeof instance !== 'object' || patchedInstances.has(instance)) {
+        if (
+          !instance ||
+          typeof instance !== "object" ||
+          patchedInstances.has(instance)
+        ) {
           return instance;
         }
 
@@ -139,14 +145,17 @@ const FRAMEWORK_PATCHES = [
           instance.children.forEach(patchInstance);
         }
 
-        const originalSeek = typeof instance.seek === 'function' ? instance.seek : null;
+        const originalSeek =
+          typeof instance.seek === "function" ? instance.seek : null;
         if (originalSeek) {
           // Ensures the first seek primes anime.js lifecycle flags before delegating to the native implementation.
           instance.seek = function patchedSeek(time) {
             const previousTime =
-              typeof instance.currentTime === 'number' ? instance.currentTime : 0;
+              typeof instance.currentTime === "number"
+                ? instance.currentTime
+                : 0;
             let normalizedTarget;
-            if (typeof time === 'number') {
+            if (typeof time === "number") {
               normalizedTarget = time;
             } else {
               const coerced = Number(time);
@@ -168,7 +177,10 @@ const FRAMEWORK_PATCHES = [
                 // ordering intact.
                 instance.currentTime = Number.MIN_VALUE;
               } catch (error) {
-                console.warn('anime.js bootstrap shim failed to prime currentTime', error);
+                console.warn(
+                  "anime.js bootstrap shim failed to prime currentTime",
+                  error
+                );
               }
             }
 
@@ -179,7 +191,10 @@ const FRAMEWORK_PATCHES = [
                 try {
                   instance.currentTime = previousTime;
                 } catch (restoreError) {
-                  console.warn('Failed to restore anime.js currentTime after seek error', restoreError);
+                  console.warn(
+                    "Failed to restore anime.js currentTime after seek error",
+                    restoreError
+                  );
                 }
               }
               throw error;
@@ -187,7 +202,8 @@ const FRAMEWORK_PATCHES = [
           };
         }
 
-        const originalReset = typeof instance.reset === 'function' ? instance.reset : null;
+        const originalReset =
+          typeof instance.reset === "function" ? instance.reset : null;
         if (originalReset) {
           // Restores patched children after anime.js resets a timeline tree.
           instance.reset = function patchedReset() {
@@ -202,7 +218,7 @@ const FRAMEWORK_PATCHES = [
           };
         }
 
-        if (typeof instance.add === 'function') {
+        if (typeof instance.add === "function") {
           const originalAdd = instance.add;
           // Applies the patch to any child animation added after initial construction.
           instance.add = function patchedAdd() {
@@ -234,15 +250,20 @@ const FRAMEWORK_PATCHES = [
 
         const descriptors = Object.getOwnPropertyDescriptors(factory);
         for (const key of Object.keys(descriptors)) {
-          if (key === 'length' || key === 'name' || key === 'arguments' || key === 'caller') {
+          if (
+            key === "length" ||
+            key === "name" ||
+            key === "arguments" ||
+            key === "caller"
+          ) {
             continue;
           }
 
           Object.defineProperty(wrapped, key, descriptors[key]);
         }
 
-        if (typeof factory.timeline === 'function') {
-          Object.defineProperty(wrapped, 'timeline', {
+        if (typeof factory.timeline === "function") {
+          Object.defineProperty(wrapped, "timeline", {
             configurable: true,
             enumerable: true,
             writable: true,
@@ -262,7 +283,7 @@ const FRAMEWORK_PATCHES = [
 
       // Replaces window.anime with the wrapped factory while preserving any existing descriptor characteristics.
       const installAnimeInterceptor = (initialValue) => {
-        Object.defineProperty(window, 'anime', {
+        Object.defineProperty(window, "anime", {
           configurable: true,
           enumerable: true,
           // Returns the most recent patched anime.js factory exposed to the page.
@@ -285,7 +306,7 @@ const FRAMEWORK_PATCHES = [
             patchedFactory.__captureOriginalFactory = originalFactory;
             automationState.animePatchedFactory = patchedFactory;
 
-            Object.defineProperty(window, 'anime', {
+            Object.defineProperty(window, "anime", {
               configurable: true,
               enumerable: true,
               writable: true,
@@ -294,7 +315,7 @@ const FRAMEWORK_PATCHES = [
           },
         });
 
-        if (typeof initialValue !== 'undefined') {
+        if (typeof initialValue !== "undefined") {
           window.anime = initialValue;
         }
       };
@@ -303,7 +324,7 @@ const FRAMEWORK_PATCHES = [
       let hasInitialValue = false;
 
       try {
-        if (Object.prototype.hasOwnProperty.call(window, 'anime')) {
+        if (Object.prototype.hasOwnProperty.call(window, "anime")) {
           initialValue = window.anime;
           hasInitialValue = true;
           delete window.anime;
@@ -325,7 +346,7 @@ async function ensureDirectoryAvailable(directoryPath) {
   try {
     await fs.access(directoryPath);
   } catch (error) {
-    if (error?.code === 'ENOENT') {
+    if (error?.code === "ENOENT") {
       throw new Error(
         `Expected directory "${directoryPath}" to exist. Add animation examples under assets/example/.`
       );
@@ -347,7 +368,7 @@ async function ensureAnimationFileAvailable(directoryPath, animationFile) {
       );
     }
   } catch (error) {
-    if (error?.code === 'ENOENT') {
+    if (error?.code === "ENOENT") {
       throw new Error(
         `Unable to find "${animationFile}" in ${directoryPath}. Ensure the file exists before running the capture script.`
       );
@@ -369,7 +390,7 @@ async function resolveAnimationFiles(directoryPath, animationPattern) {
   try {
     entries = await fs.readdir(directoryPath, { withFileTypes: true });
   } catch (error) {
-    if (error?.code === 'ENOENT') {
+    if (error?.code === "ENOENT") {
       throw new Error(
         `Expected directory "${directoryPath}" to exist. Add animation examples under assets/example/.`
       );
@@ -396,7 +417,9 @@ async function resolveAnimationFiles(directoryPath, animationPattern) {
     }
   }
 
-  matches.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  matches.sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+  );
 
   if (matches.length === 0) {
     throw new Error(
@@ -413,15 +436,15 @@ async function advanceVirtualTime(client, budgetMs) {
     // Resolves the promise when the DevTools budget event fires.
     const handleBudgetExpired = () => resolve();
 
-    client.once('Emulation.virtualTimeBudgetExpired', handleBudgetExpired);
+    client.once("Emulation.virtualTimeBudgetExpired", handleBudgetExpired);
 
     client
-      .send('Emulation.setVirtualTimePolicy', {
-        policy: 'pauseIfNetworkFetchesPending',
+      .send("Emulation.setVirtualTimePolicy", {
+        policy: "pauseIfNetworkFetchesPending",
         budget: budgetMs,
       })
       .catch((error) => {
-        client.off('Emulation.virtualTimeBudgetExpired', handleBudgetExpired);
+        client.off("Emulation.virtualTimeBudgetExpired", handleBudgetExpired);
         reject(error);
       });
   });
@@ -444,11 +467,18 @@ function buildCaptureTimeline(targetTimeMs, intervalMs) {
 
   const sanitizedInterval = Math.max(1, Math.floor(intervalMs));
 
-  for (let timestamp = 0; timestamp < sanitizedTarget; timestamp += sanitizedInterval) {
+  for (
+    let timestamp = 0;
+    timestamp < sanitizedTarget;
+    timestamp += sanitizedInterval
+  ) {
     timeline.push(timestamp);
   }
 
-  if (timeline.length === 0 || timeline[timeline.length - 1] !== sanitizedTarget) {
+  if (
+    timeline.length === 0 ||
+    timeline[timeline.length - 1] !== sanitizedTarget
+  ) {
     timeline.push(sanitizedTarget);
   }
 
@@ -464,7 +494,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       try {
         automationState.setPerformanceNowOverride(targetTimeMs);
       } catch (error) {
-        console.warn('Failed to override performance.now()', error);
+        console.warn("Failed to override performance.now()", error);
       }
     }
 
@@ -474,7 +504,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
         animation.currentTime = targetTimeMs;
         animation.pause();
       } catch (error) {
-        console.warn('Failed to fast-forward animation', error);
+        console.warn("Failed to fast-forward animation", error);
       }
     }
 
@@ -482,7 +512,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       try {
         automationState.flushRafCallbacks(targetTimeMs);
       } catch (error) {
-        console.warn('Failed to flush requestAnimationFrame callbacks', error);
+        console.warn("Failed to flush requestAnimationFrame callbacks", error);
       }
     }
 
@@ -490,18 +520,25 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       try {
         automationState.runRafCallbacksImmediately(targetTimeMs);
       } catch (error) {
-        console.warn('Failed to invoke requestAnimationFrame callbacks directly', error);
+        console.warn(
+          "Failed to invoke requestAnimationFrame callbacks directly",
+          error
+        );
       }
     }
 
-    const trackedInstances =
-      (automationState?.getTrackedAnimeInstances?.() || [])
-        .concat(Array.isArray(window.anime?.running) ? window.anime.running : []);
+    const trackedInstances = (
+      automationState?.getTrackedAnimeInstances?.() || []
+    ).concat(Array.isArray(window.anime?.running) ? window.anime.running : []);
 
     const seen = new Set();
 
     for (const instance of trackedInstances) {
-      if (!instance || typeof instance.seek !== 'function' || seen.has(instance)) {
+      if (
+        !instance ||
+        typeof instance.seek !== "function" ||
+        seen.has(instance)
+      ) {
         continue;
       }
 
@@ -510,7 +547,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       try {
         instance.seek(targetTimeMs);
       } catch (error) {
-        console.warn('Failed to seek anime.js instance to target time', error);
+        console.warn("Failed to seek anime.js instance to target time", error);
       }
     }
   }, targetTimeMs);
@@ -523,14 +560,16 @@ async function injectRafProbe(context) {
     const automationState = (window.__captureAutomation ||= {});
     automationState.rafTickCount = 0;
 
-    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
-    const originalCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    const originalRequestAnimationFrame =
+      window.requestAnimationFrame.bind(window);
+    const originalCancelAnimationFrame =
+      window.cancelAnimationFrame.bind(window);
     const originalPerformanceNow = performance.now.bind(performance);
     automationState.originalPerformanceNow = originalPerformanceNow;
     automationState.performanceNowOrigin = performance.now();
 
     let firstPerformanceNow = null;
-    Object.defineProperty(performance, 'now', {
+    Object.defineProperty(performance, "now", {
       configurable: true,
       value: () => {
         const value = originalPerformanceNow();
@@ -570,19 +609,19 @@ async function injectRafProbe(context) {
     };
 
     automationState.setPerformanceNowOverride = (fixedTimestamp) => {
-      if (typeof fixedTimestamp === 'number') {
+      if (typeof fixedTimestamp === "number") {
         const origin =
-          typeof automationState.firstPerformanceNow === 'number'
+          typeof automationState.firstPerformanceNow === "number"
             ? automationState.firstPerformanceNow
-            : typeof automationState.performanceNowOrigin === 'number'
+            : typeof automationState.performanceNowOrigin === "number"
             ? automationState.performanceNowOrigin
             : 0;
-        Object.defineProperty(performance, 'now', {
+        Object.defineProperty(performance, "now", {
           configurable: true,
           value: () => origin + fixedTimestamp,
         });
       } else {
-        Object.defineProperty(performance, 'now', {
+        Object.defineProperty(performance, "now", {
           configurable: true,
           value: originalPerformanceNow,
         });
@@ -601,7 +640,10 @@ async function injectRafProbe(context) {
           try {
             wrapped(targetTimestamp);
           } catch (error) {
-            console.warn('Failed to flush requestAnimationFrame callback', error);
+            console.warn(
+              "Failed to flush requestAnimationFrame callback",
+              error
+            );
           }
         }
 
@@ -610,7 +652,7 @@ async function injectRafProbe(context) {
 
       if (pendingCallbacks.size > 0) {
         console.warn(
-          'Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap.'
+          "Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap."
         );
       }
     };
@@ -628,7 +670,10 @@ async function injectRafProbe(context) {
           try {
             callback.call(window, targetTimestamp);
           } catch (error) {
-            console.warn('Failed to invoke requestAnimationFrame callback directly', error);
+            console.warn(
+              "Failed to invoke requestAnimationFrame callback directly",
+              error
+            );
           }
         }
       } finally {
@@ -670,13 +715,12 @@ async function waitForAnimationBootstrap(page, config) {
   try {
     await page.waitForFunction(
       // Waits until the page has observed enough RAF ticks for the bootstrap heuristics.
-      (minTicks) =>
-        (window.__captureAutomation?.rafTickCount || 0) >= minTicks,
+      (minTicks) => (window.__captureAutomation?.rafTickCount || 0) >= minTicks,
       config.minRafTicksBeforeVirtualTime,
       { timeout: remainingBudget }
     );
   } catch (error) {
-    if (!/Timeout/i.test(error?.message || '')) {
+    if (!/Timeout/i.test(error?.message || "")) {
       throw error;
     }
   }
@@ -692,7 +736,7 @@ async function captureAnimationFile(browser, animationFile, config) {
     await injectRafProbe(context);
     await injectFrameworkPatches(context);
     const fileUrl = pathToFileURL(targetPath).href;
-    await page.goto(fileUrl, { waitUntil: 'load' });
+    await page.goto(fileUrl, { waitUntil: "load" });
 
     // Allow a slice of real time so requestAnimationFrame callbacks (and any
     // animation framework lifecycle hooks) can run before we seize control of
@@ -703,8 +747,8 @@ async function captureAnimationFile(browser, animationFile, config) {
 
     const client = await context.newCDPSession(page);
 
-    await client.send('Emulation.setVirtualTimePolicy', {
-      policy: 'pauseIfNetworkFetchesPending',
+    await client.send("Emulation.setVirtualTimePolicy", {
+      policy: "pauseIfNetworkFetchesPending",
       budget: 0,
       initialVirtualTime: 0,
     });
@@ -717,10 +761,10 @@ async function captureAnimationFile(browser, animationFile, config) {
     const padLength = Math.max(4, String(finalTimestamp).length);
 
     const safeName = animationFile
-      .replace(/[\\/]/g, '-')
-      .replace(HTML_FILE_PATTERN, '')
+      .replace(/[\\/]/g, "-")
+      .replace(HTML_FILE_PATTERN, "")
       .trim();
-    const screenshotBasename = safeName || 'animation';
+    const screenshotBasename = safeName || "animation";
     const screenshotPaths = [];
     let currentVirtualTime = 0;
 
@@ -746,7 +790,7 @@ async function captureAnimationFile(browser, animationFile, config) {
 
       const timestampLabel = String(normalizedTimestamp).padStart(
         padLength,
-        '0'
+        "0"
       );
       const screenshotFilename = `${screenshotBasename}-${timestampLabel}ms.png`;
       const screenshotPath = path.resolve(config.outputDir, screenshotFilename);
@@ -763,7 +807,7 @@ async function captureAnimationFile(browser, animationFile, config) {
 
 // Prints actionable troubleshooting hints when Chromium fails to start.
 function logChromiumLaunchFailure(error, config) {
-  const message = error?.message || '';
+  const message = error?.message || "";
 
   if (message.includes("Executable doesn't exist")) {
     console.error(
@@ -777,12 +821,12 @@ function logChromiumLaunchFailure(error, config) {
     console.error(
       `Failed to launch the Playwright channel "${config.browserChannel}". Ensure the corresponding browser (for example Google Chrome for "chrome") is installed and Playwright supports it on this platform.`
     );
-  } else if (message.includes('Host system is missing dependencies')) {
+  } else if (message.includes("Host system is missing dependencies")) {
     console.error(
       'Chromium is missing required system libraries. Install them with "npx playwright install-deps" (or consult Playwright\'s documentation for your platform) and retry.'
     );
   } else {
-    console.error('Failed to launch Chromium:', error);
+    console.error("Failed to launch Chromium:", error);
   }
 }
 
@@ -847,7 +891,7 @@ async function runCaptureWorkflow() {
         } else {
           const formatted = screenshotPaths
             .map((file) => `  - ${file}`)
-            .join('\n');
+            .join("\n");
           console.log(`Captured ${animationFile} ->\n${formatted}`);
         }
       } catch (error) {
@@ -870,8 +914,7 @@ async function runCaptureWorkflow() {
   try {
     await runCaptureWorkflow();
   } catch (error) {
-    console.error('Unexpected failure during capture workflow:', error);
+    console.error("Unexpected failure during capture workflow:", error);
     process.exitCode = 1;
   }
 })();
-
