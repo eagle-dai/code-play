@@ -692,7 +692,7 @@ async function captureAnimationFile(browser, animationFile, config) {
     await injectRafProbe(context);
     await injectFrameworkPatches(context);
     const fileUrl = pathToFileURL(targetPath).href;
-    await page.goto(fileUrl, { waitUntil: 'load' });
+    await page.goto(fileUrl, { waitUntil: 'domcontentloaded' });
 
     // Allow a slice of real time so requestAnimationFrame callbacks (and any
     // animation framework lifecycle hooks) can run before we seize control of
@@ -708,6 +708,10 @@ async function captureAnimationFile(browser, animationFile, config) {
       budget: 0,
       initialVirtualTime: 0,
     });
+
+    // Ensure raster-based animations such as GIFs have finished decoding
+    // before captures begin so the initial frame matches real-world playback.
+    await waitForImageDecoding(page);
 
     const captureTimeline = buildCaptureTimeline(
       config.targetTimeMs,
@@ -758,6 +762,52 @@ async function captureAnimationFile(browser, animationFile, config) {
     return screenshotPaths;
   } finally {
     await context.close();
+  }
+}
+
+// Waits until all <img> elements report successful decoding so GIF carousels
+// and other raster assets display their first frame before screenshots start.
+async function waitForImageDecoding(page, timeoutMs = 15_000) {
+  try {
+    await page.waitForFunction(
+      () => {
+        const images = Array.from(document.images || []);
+
+        if (images.length === 0) {
+          return true;
+        }
+
+        const automationState = (window.__captureAutomation ||= {});
+        const requestedDecodes =
+          (automationState.requestedImageDecodes ||= new WeakSet());
+
+        return images.every((image) => {
+          if (!image) {
+            return true;
+          }
+
+          if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+            return true;
+          }
+
+          if (typeof image.decode === 'function') {
+            if (!requestedDecodes.has(image)) {
+              requestedDecodes.add(image);
+              image.decode().catch(() => {
+                /* Swallow decoding errors; fall back to natural size heuristics. */
+              });
+            }
+          }
+
+          return false;
+        });
+      },
+      { timeout: timeoutMs }
+    );
+  } catch (error) {
+    if (!/Timeout/i.test(error?.message || '')) {
+      throw error;
+    }
   }
 }
 
