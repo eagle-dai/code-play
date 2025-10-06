@@ -78,3 +78,13 @@ After following the installation steps, use the commands below to confirm your e
 1. Install dependencies with `npm install`.
 2. Install the Chromium browser binary with `npx playwright install chromium` (and, on Linux, system libraries via `npx playwright install-deps`).
 3. Capture an example animation with `npm run capture:animation -- animejs-virtual-time.html`. You should see output similar to `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`, representing the 100 ms timeline.
+
+## Formatting scripts
+
+To keep code style consistent with the Prettier – Code formatter settings used in VS Code, run:
+
+```bash
+npm run format
+```
+
+This command applies Prettier's defaults to every file under `scripts/`, matching the formatting you would get from the VS Code extension.

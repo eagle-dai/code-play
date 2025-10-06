@@ -614,8 +614,8 @@ async function injectRafProbe(context) {
           typeof automationState.firstPerformanceNow === "number"
             ? automationState.firstPerformanceNow
             : typeof automationState.performanceNowOrigin === "number"
-            ? automationState.performanceNowOrigin
-            : 0;
+              ? automationState.performanceNowOrigin
+              : 0;
         Object.defineProperty(performance, "now", {
           configurable: true,
           value: () => origin + fixedTimestamp,
