@@ -15,9 +15,13 @@ const DEFAULT_CAPTURE_CONFIG = Object.freeze({
   interstepRealtimeWaitMs: 50,
   // Real-time pre-roll before virtual time is enabled. Some animation frameworks only stabilize
   // after several requestAnimationFrame ticks, so we give them a configurable window.
+  // Keep the real-time bootstrap window short so timer-driven reveals (such as
+  // videos that fade in after a delay) do not complete before we capture the
+  // first frame. The previous 1 s cap let some demos advance too far, so we
+  // now restrict the ceiling to 0.5 s and require fewer RAF ticks.
   minInitialRealtimeWaitMs: 120,
-  maxInitialRealtimeWaitMs: 1_000,
-  minRafTicksBeforeVirtualTime: 30,
+  maxInitialRealtimeWaitMs: 500,
+  minRafTicksBeforeVirtualTime: 10,
   // Once the target virtual timestamp is reached, give the page a final moment to settle before taking screenshots.
   postVirtualTimeWaitMs: 1_000,
   exampleDir: path.resolve(__dirname, "..", "assets", "example"),
