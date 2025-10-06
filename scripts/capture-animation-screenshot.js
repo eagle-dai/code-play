@@ -829,10 +829,24 @@ async function captureAnimationFile(browser, animationFile, config) {
 
     const client = await context.newCDPSession(page);
 
+    const virtualTimeOrigin = await page.evaluate(() => {
+      const automationState = window.__captureAutomation;
+      const rawOrigin =
+        automationState?.firstPerformanceNow ??
+        automationState?.performanceNowOrigin ??
+        performance.now();
+
+      if (Number.isFinite(rawOrigin) && rawOrigin >= 0) {
+        return rawOrigin;
+      }
+
+      return performance.now();
+    });
+
     await client.send('Emulation.setVirtualTimePolicy', {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
-      initialVirtualTime: 0,
+      initialVirtualTime: Math.max(0, Math.floor(virtualTimeOrigin)),
     });
 
     await page.evaluate(() => {
