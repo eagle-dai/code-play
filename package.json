@@ -4,9 +4,13 @@
   "description": "Playwright helper scripts for the code-play examples",
   "private": true,
   "scripts": {
-    "capture:animation": "node scripts/capture-animation-screenshot.js"
+    "capture:animation": "node scripts/capture-animation-screenshot.js",
+    "format": "prettier --write \"scripts/*.js\""
   },
   "dependencies": {
     "playwright": "^1.43.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5"
   }
 }
