@@ -7,38 +7,45 @@ const { pathToFileURL } = require('url');
 // screenshots documented in README.md, but each constant can be tuned for
 // other animation suites without touching the rest of the workflow.
 const DEFAULT_TARGET_TIME_MS = 4_000;
-const TARGET_TIME_MS = DEFAULT_TARGET_TIME_MS;
-const FRAME_CAPTURE_INTERVAL_MS = 100;
-const INTERSTEP_REALTIME_WAIT_MS = 50;
 const HTML_FILE_PATTERN = /\.html?$/i;
-const ANIMATION_PATTERN = (() => {
-  try {
-    return resolveAnimationPattern(process.argv.slice(2));
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
-  }
-})();
-const EXAMPLE_DIR = path.resolve(__dirname, '..', 'assets', 'example');
-const OUTPUT_DIR = path.resolve(__dirname, '..', 'tmp', 'output');
-const VIEWPORT_DIMENSIONS = { width: 320, height: 240 };
-const BROWSER_CHANNEL = (process.env.PLAYWRIGHT_BROWSER_CHANNEL || '').trim() || null;
-const BROWSER_EXECUTABLE_PATH =
-  (process.env.PLAYWRIGHT_CHROME_EXECUTABLE || '').trim() || null;
+const DEFAULT_CAPTURE_CONFIG = Object.freeze({
+  targetTimeMs: DEFAULT_TARGET_TIME_MS,
+  frameCaptureIntervalMs: 100,
+  interstepRealtimeWaitMs: 50,
+  // Real-time pre-roll before virtual time is enabled. Some animation frameworks only stabilize
+  // after several requestAnimationFrame ticks, so we give them a configurable window.
+  minInitialRealtimeWaitMs: 120,
+  maxInitialRealtimeWaitMs: 1_000,
+  minRafTicksBeforeVirtualTime: 30,
+  // Once the target virtual timestamp is reached, give the page a final moment to settle before taking screenshots.
+  postVirtualTimeWaitMs: 1_000,
+  exampleDir: path.resolve(__dirname, '..', 'assets', 'example'),
+  outputDir: path.resolve(__dirname, '..', 'tmp', 'output'),
+  viewport: Object.freeze({ width: 320, height: 240 }),
+});
 
-// Real-time pre-roll before virtual time is enabled. Some animation frameworks
-// perform asynchronous preparation that only kicks in after a few
-// requestAnimationFrame ticks; the wait and RAF minimum help cover those
-// bootstraps. The upper bound prevents pathological pages from stalling the
-// capture forever.
-const MIN_INITIAL_REALTIME_WAIT_MS = 120;
-const MAX_INITIAL_REALTIME_WAIT_MS = 1_000;
-const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
+// Builds an immutable configuration object for the capture workflow based on CLI args and environment variables.
+function buildCaptureConfig(argv, env = process.env) {
+  const animationPattern = resolveAnimationPattern(argv);
+  const browserChannel = (env.PLAYWRIGHT_BROWSER_CHANNEL || '').trim();
+  const browserExecutablePath = (env.PLAYWRIGHT_CHROME_EXECUTABLE || '').trim();
 
-// Once the target virtual timestamp is reached, give the page a final moment to
-// settle so mutation observers or microtasks triggered by the last frame can
-// complete before taking the screenshot.
-const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
+  return Object.freeze({
+    animationPattern,
+    browserChannel: browserChannel || null,
+    browserExecutablePath: browserExecutablePath || null,
+    targetTimeMs: DEFAULT_CAPTURE_CONFIG.targetTimeMs,
+    frameCaptureIntervalMs: DEFAULT_CAPTURE_CONFIG.frameCaptureIntervalMs,
+    interstepRealtimeWaitMs: DEFAULT_CAPTURE_CONFIG.interstepRealtimeWaitMs,
+    postVirtualTimeWaitMs: DEFAULT_CAPTURE_CONFIG.postVirtualTimeWaitMs,
+    minInitialRealtimeWaitMs: DEFAULT_CAPTURE_CONFIG.minInitialRealtimeWaitMs,
+    maxInitialRealtimeWaitMs: DEFAULT_CAPTURE_CONFIG.maxInitialRealtimeWaitMs,
+    minRafTicksBeforeVirtualTime: DEFAULT_CAPTURE_CONFIG.minRafTicksBeforeVirtualTime,
+    exampleDir: DEFAULT_CAPTURE_CONFIG.exampleDir,
+    outputDir: DEFAULT_CAPTURE_CONFIG.outputDir,
+    viewport: { ...DEFAULT_CAPTURE_CONFIG.viewport },
+  });
+}
 
 function resolveAnimationPattern(args) {
   if (args.length === 0) {
@@ -79,6 +86,19 @@ function wildcardToRegExp(pattern) {
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const translated = escaped.replace(/\\\*/g, '.*').replace(/\\\?/g, '.');
   return new RegExp(`^${translated}$`, 'i');
+}
+
+// Creates browser launch options derived from the resolved configuration.
+function buildBrowserLaunchOptions(config) {
+  const launchOptions = {};
+
+  if (config.browserExecutablePath) {
+    launchOptions.executablePath = config.browserExecutablePath;
+  } else if (config.browserChannel) {
+    launchOptions.channel = config.browserChannel;
+  }
+
+  return launchOptions;
 }
 
 // Patches run before any page script executes. Each entry registers shims for a
@@ -630,19 +650,20 @@ async function injectFrameworkPatches(context) {
 }
 
 // Waits for initial real-time ticks so animations can initialize before virtual time control begins.
-async function waitForAnimationBootstrap(page) {
-  if (MAX_INITIAL_REALTIME_WAIT_MS <= 0) {
+async function waitForAnimationBootstrap(page, config) {
+  if (config.maxInitialRealtimeWaitMs <= 0) {
     return;
   }
 
-  await page.waitForTimeout(Math.max(0, MIN_INITIAL_REALTIME_WAIT_MS));
+  const initialWait = Math.max(0, config.minInitialRealtimeWaitMs);
+  await page.waitForTimeout(initialWait);
 
   const remainingBudget = Math.max(
     0,
-    MAX_INITIAL_REALTIME_WAIT_MS - Math.max(0, MIN_INITIAL_REALTIME_WAIT_MS)
+    config.maxInitialRealtimeWaitMs - initialWait
   );
 
-  if (remainingBudget === 0 || MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME <= 0) {
+  if (remainingBudget === 0 || config.minRafTicksBeforeVirtualTime <= 0) {
     return;
   }
 
@@ -651,7 +672,7 @@ async function waitForAnimationBootstrap(page) {
       // Waits until the page has observed enough RAF ticks for the bootstrap heuristics.
       (minTicks) =>
         (window.__captureAutomation?.rafTickCount || 0) >= minTicks,
-      MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME,
+      config.minRafTicksBeforeVirtualTime,
       { timeout: remainingBudget }
     );
   } catch (error) {
@@ -662,9 +683,9 @@ async function waitForAnimationBootstrap(page) {
 }
 
 // Opens an example file, fast-forwards its animations, and saves screenshots for each capture timestamp.
-async function captureAnimationFile(browser, animationFile) {
-  const targetPath = path.resolve(EXAMPLE_DIR, animationFile);
-  const context = await browser.newContext({ viewport: VIEWPORT_DIMENSIONS });
+async function captureAnimationFile(browser, animationFile, config) {
+  const targetPath = path.resolve(config.exampleDir, animationFile);
+  const context = await browser.newContext({ viewport: config.viewport });
   const page = await context.newPage();
 
   try {
@@ -678,7 +699,7 @@ async function captureAnimationFile(browser, animationFile) {
     // virtual time. The RAF probe waits for a minimum number of ticks—up to a
     // 1s cap—to cover animations that rely on several frames of bootstrap work
     // before reaching their steady state.
-    await waitForAnimationBootstrap(page);
+    await waitForAnimationBootstrap(page, config);
 
     const client = await context.newCDPSession(page);
 
@@ -689,8 +710,8 @@ async function captureAnimationFile(browser, animationFile) {
     });
 
     const captureTimeline = buildCaptureTimeline(
-      TARGET_TIME_MS,
-      FRAME_CAPTURE_INTERVAL_MS
+      config.targetTimeMs,
+      config.frameCaptureIntervalMs
     );
     const finalTimestamp = captureTimeline[captureTimeline.length - 1] || 0;
     const padLength = Math.max(4, String(finalTimestamp).length);
@@ -714,8 +735,8 @@ async function captureAnimationFile(browser, animationFile) {
 
       const settleDelay =
         normalizedTimestamp === finalTimestamp
-          ? POST_VIRTUAL_TIME_WAIT_MS
-          : INTERSTEP_REALTIME_WAIT_MS;
+          ? config.postVirtualTimeWaitMs
+          : config.interstepRealtimeWaitMs;
 
       if (settleDelay > 0) {
         await page.waitForTimeout(settleDelay);
@@ -728,7 +749,7 @@ async function captureAnimationFile(browser, animationFile) {
         '0'
       );
       const screenshotFilename = `${screenshotBasename}-${timestampLabel}ms.png`;
-      const screenshotPath = path.resolve(OUTPUT_DIR, screenshotFilename);
+      const screenshotPath = path.resolve(config.outputDir, screenshotFilename);
 
       await page.screenshot({ path: screenshotPath });
       screenshotPaths.push(screenshotPath);
@@ -741,20 +762,20 @@ async function captureAnimationFile(browser, animationFile) {
 }
 
 // Prints actionable troubleshooting hints when Chromium fails to start.
-function logChromiumLaunchFailure(error) {
+function logChromiumLaunchFailure(error, config) {
   const message = error?.message || '';
 
   if (message.includes("Executable doesn't exist")) {
     console.error(
       'Playwright Chromium binary not found. Run "npx playwright install chromium" and retry.'
     );
-  } else if (BROWSER_EXECUTABLE_PATH) {
+  } else if (config.browserExecutablePath) {
     console.error(
-      `Unable to launch the browser at PLAYWRIGHT_CHROME_EXECUTABLE (currently '${BROWSER_EXECUTABLE_PATH}'). Verify the path and retry.`
+      `Unable to launch the browser at PLAYWRIGHT_CHROME_EXECUTABLE (currently '${config.browserExecutablePath}'). Verify the path and retry.`
     );
-  } else if (BROWSER_CHANNEL) {
+  } else if (config.browserChannel) {
     console.error(
-      `Failed to launch the Playwright channel "${BROWSER_CHANNEL}". Ensure the corresponding browser (for example Google Chrome for "chrome") is installed and Playwright supports it on this platform.`
+      `Failed to launch the Playwright channel "${config.browserChannel}". Ensure the corresponding browser (for example Google Chrome for "chrome") is installed and Playwright supports it on this platform.`
     );
   } else if (message.includes('Host system is missing dependencies')) {
     console.error(
@@ -766,9 +787,19 @@ function logChromiumLaunchFailure(error) {
 }
 
 // Orchestrates the capture workflow end-to-end for the requested animation.
-(async () => {
+async function runCaptureWorkflow() {
+  let config;
+
   try {
-    await ensureDirectoryAvailable(EXAMPLE_DIR);
+    config = buildCaptureConfig(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    await ensureDirectoryAvailable(config.exampleDir);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -777,27 +808,23 @@ function logChromiumLaunchFailure(error) {
 
   let animationFiles;
   try {
-    animationFiles = await resolveAnimationFiles(EXAMPLE_DIR, ANIMATION_PATTERN);
+    animationFiles = await resolveAnimationFiles(
+      config.exampleDir,
+      config.animationPattern
+    );
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
     return;
   }
 
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+  await fs.mkdir(config.outputDir, { recursive: true });
 
   let browser;
   try {
-    const launchOptions = {};
-    if (BROWSER_EXECUTABLE_PATH) {
-      launchOptions.executablePath = BROWSER_EXECUTABLE_PATH;
-    } else if (BROWSER_CHANNEL) {
-      launchOptions.channel = BROWSER_CHANNEL;
-    }
-
-    browser = await chromium.launch(launchOptions);
+    browser = await chromium.launch(buildBrowserLaunchOptions(config));
   } catch (error) {
-    logChromiumLaunchFailure(error);
+    logChromiumLaunchFailure(error, config);
     process.exitCode = 1;
     return;
   }
@@ -807,14 +834,20 @@ function logChromiumLaunchFailure(error) {
 
     for (const animationFile of animationFiles) {
       try {
-        const screenshotPaths = await captureAnimationFile(browser, animationFile);
+        const screenshotPaths = await captureAnimationFile(
+          browser,
+          animationFile,
+          config
+        );
 
         if (screenshotPaths.length === 0) {
           console.warn(`No screenshots were generated for ${animationFile}.`);
         } else if (screenshotPaths.length === 1) {
           console.log(`Captured ${animationFile} -> ${screenshotPaths[0]}`);
         } else {
-          const formatted = screenshotPaths.map((file) => `  - ${file}`).join('\n');
+          const formatted = screenshotPaths
+            .map((file) => `  - ${file}`)
+            .join('\n');
           console.log(`Captured ${animationFile} ->\n${formatted}`);
         }
       } catch (error) {
@@ -827,7 +860,18 @@ function logChromiumLaunchFailure(error) {
       process.exitCode = 1;
     }
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+(async () => {
+  try {
+    await runCaptureWorkflow();
+  } catch (error) {
+    console.error('Unexpected failure during capture workflow:', error);
+    process.exitCode = 1;
   }
 })();
 
