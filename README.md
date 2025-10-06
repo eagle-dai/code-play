@@ -63,11 +63,11 @@ Follow these steps to configure your environment and run the script:
      PLAYWRIGHT_CHROME_EXECUTABLE="/usr/bin/google-chrome-stable" npm run capture:animation
      ```
      When this variable is present the channel setting is ignored.
-6. **Run the capture script for a specific example:**
+6. **Run the capture script for a specific example (or pattern):**
    ```bash
    npm run capture:animation -- animejs-virtual-time.html
    ```
-   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. The script writes a series of screenshots (100 ms apart by default) such as `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`.
+   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. You can also supply wildcard patterns such as `animejs-*.html` or `*.html` to capture multiple files in a single run. The script writes a series of screenshots (100 ms apart by default) such as `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
