@@ -11,9 +11,9 @@ const TARGET_TIME_MS = DEFAULT_TARGET_TIME_MS;
 const FRAME_CAPTURE_INTERVAL_MS = 100;
 const INTERSTEP_REALTIME_WAIT_MS = 50;
 const HTML_FILE_PATTERN = /\.html?$/i;
-const ANIMATION_FILE = (() => {
+const ANIMATION_PATTERN = (() => {
   try {
-    return resolveAnimationFilename(process.argv.slice(2));
+    return resolveAnimationPattern(process.argv.slice(2));
   } catch (error) {
     console.error(error.message);
     process.exit(1);
@@ -40,7 +40,7 @@ const MIN_RAF_TICKS_BEFORE_VIRTUAL_TIME = 30;
 // complete before taking the screenshot.
 const POST_VIRTUAL_TIME_WAIT_MS = 1_000;
 
-function resolveAnimationFilename(args) {
+function resolveAnimationPattern(args) {
   if (args.length === 0) {
     throw new Error(
       'Expected the HTML file name as the first argument. Example: "npm run capture:animation -- animejs-virtual-time.html"'
@@ -49,25 +49,36 @@ function resolveAnimationFilename(args) {
 
   if (args.length > 1) {
     throw new Error(
-      `Received unexpected extra arguments after "${args[0]}". Provide only the HTML file name to capture.`
+      `Received unexpected extra arguments after "${args[0]}". Provide only the HTML file name or pattern to capture.`
     );
   }
 
-  const animationFile = args[0];
+  const animationPattern = args[0];
 
-  if (!HTML_FILE_PATTERN.test(animationFile)) {
+  if (animationPattern.includes('/') || animationPattern.includes(path.sep)) {
     throw new Error(
-      `The argument "${animationFile}" does not look like an HTML file. Provide a file ending in .html or .htm.`
+      `Provide only the HTML file name, not a path. Received "${animationPattern}".`
     );
   }
 
-  if (animationFile.includes('/') || animationFile.includes(path.sep)) {
+  const validationSample = animationPattern.replace(/[\*\?]/g, 'a');
+  if (!HTML_FILE_PATTERN.test(validationSample)) {
     throw new Error(
-      `Provide only the HTML file name, not a path. Received "${animationFile}".`
+      `The argument "${animationPattern}" does not look like an HTML file. Provide a file ending in .html or .htm.`
     );
   }
 
-  return animationFile;
+  return animationPattern;
+}
+
+function containsWildcards(pattern) {
+  return /[\*\?]/.test(pattern);
+}
+
+function wildcardToRegExp(pattern) {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const translated = escaped.replace(/\\\*/g, '.*').replace(/\\\?/g, '.');
+  return new RegExp(`^${translated}$`, 'i');
 }
 
 // Patches run before any page script executes. Each entry registers shims for a
@@ -326,6 +337,54 @@ async function ensureAnimationFileAvailable(directoryPath, animationFile) {
   }
 
   return animationPath;
+}
+
+async function resolveAnimationFiles(directoryPath, animationPattern) {
+  if (!containsWildcards(animationPattern)) {
+    await ensureAnimationFileAvailable(directoryPath, animationPattern);
+    return [animationPattern];
+  }
+
+  let entries;
+  try {
+    entries = await fs.readdir(directoryPath, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        `Expected directory "${directoryPath}" to exist. Add animation examples under assets/example/.`
+      );
+    }
+
+    throw error;
+  }
+
+  const matcher = wildcardToRegExp(animationPattern);
+  const matches = [];
+
+  for (const entry of entries) {
+    if (!(entry.isFile?.() || entry.isSymbolicLink?.())) {
+      continue;
+    }
+
+    const candidate = entry.name;
+    if (!HTML_FILE_PATTERN.test(candidate)) {
+      continue;
+    }
+
+    if (matcher.test(candidate)) {
+      matches.push(candidate);
+    }
+  }
+
+  matches.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+  if (matches.length === 0) {
+    throw new Error(
+      `No files matched pattern "${animationPattern}" in ${directoryPath}. Adjust the pattern and retry.`
+    );
+  }
+
+  return matches;
 }
 
 // Uses the Chrome DevTools Protocol to advance the virtual clock by a specific budget.
@@ -716,8 +775,9 @@ function logChromiumLaunchFailure(error) {
     return;
   }
 
+  let animationFiles;
   try {
-    await ensureAnimationFileAvailable(EXAMPLE_DIR, ANIMATION_FILE);
+    animationFiles = await resolveAnimationFiles(EXAMPLE_DIR, ANIMATION_PATTERN);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
@@ -743,19 +803,29 @@ function logChromiumLaunchFailure(error) {
   }
 
   try {
-    const screenshotPaths = await captureAnimationFile(browser, ANIMATION_FILE);
+    let hasFailures = false;
 
-    if (screenshotPaths.length === 0) {
-      console.warn(`No screenshots were generated for ${ANIMATION_FILE}.`);
-    } else if (screenshotPaths.length === 1) {
-      console.log(`Captured ${ANIMATION_FILE} -> ${screenshotPaths[0]}`);
-    } else {
-      const formatted = screenshotPaths.map((file) => `  - ${file}`).join('\n');
-      console.log(`Captured ${ANIMATION_FILE} ->\n${formatted}`);
+    for (const animationFile of animationFiles) {
+      try {
+        const screenshotPaths = await captureAnimationFile(browser, animationFile);
+
+        if (screenshotPaths.length === 0) {
+          console.warn(`No screenshots were generated for ${animationFile}.`);
+        } else if (screenshotPaths.length === 1) {
+          console.log(`Captured ${animationFile} -> ${screenshotPaths[0]}`);
+        } else {
+          const formatted = screenshotPaths.map((file) => `  - ${file}`).join('\n');
+          console.log(`Captured ${animationFile} ->\n${formatted}`);
+        }
+      } catch (error) {
+        console.error(`Failed to capture ${animationFile}:`, error);
+        hasFailures = true;
+      }
     }
-  } catch (error) {
-    console.error(`Failed to capture ${ANIMATION_FILE}:`, error);
-    process.exitCode = 1;
+
+    if (hasFailures) {
+      process.exitCode = 1;
+    }
   } finally {
     await browser.close();
   }
