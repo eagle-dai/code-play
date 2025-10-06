@@ -494,6 +494,14 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
+    if (automationState?.flushIntervalCallbacks) {
+      try {
+        automationState.flushIntervalCallbacks(targetTimeMs);
+      } catch (error) {
+        console.warn('Failed to flush setInterval callbacks', error);
+      }
+    }
+
     const trackedInstances =
       (automationState?.getTrackedAnimeInstances?.() || [])
         .concat(Array.isArray(window.anime?.running) ? window.anime.running : []);
@@ -546,6 +554,26 @@ async function injectRafProbe(context) {
     const registeredCallbacks = new Set();
     automationState.disableRafScheduling = false;
 
+    const originalSetInterval = window.setInterval.bind(window);
+    const originalClearInterval = window.clearInterval.bind(window);
+    const trackedIntervals = new Map();
+    automationState.intervalDispatchEnabled = true;
+
+    const normalizeTimerHandler = (handler) => {
+      if (typeof handler === 'function') {
+        return handler;
+      }
+
+      const source = String(handler ?? '');
+      try {
+        // Matches native setInterval semantics where string handlers are evaluated.
+        return new Function(source);
+      } catch (error) {
+        console.warn('Failed to compile setInterval handler', error);
+        return () => {};
+      }
+    };
+
     window.requestAnimationFrame = (callback) => {
       if (automationState.disableRafScheduling) {
         return 0;
@@ -567,6 +595,104 @@ async function injectRafProbe(context) {
     window.cancelAnimationFrame = (handle) => {
       pendingCallbacks.delete(handle);
       return originalCancelAnimationFrame(handle);
+    };
+
+    window.setInterval = function patchedSetInterval(handler, delay, ...extraArgs) {
+      const callback = normalizeTimerHandler(handler);
+      const normalizedDelay = Number.isFinite(delay)
+        ? Math.max(0, Number(delay))
+        : 0;
+
+      const origin =
+        typeof automationState.firstPerformanceNow === 'number'
+          ? automationState.firstPerformanceNow
+          : typeof automationState.performanceNowOrigin === 'number'
+          ? automationState.performanceNowOrigin
+          : 0;
+
+      const now = automationState.originalPerformanceNow
+        ? automationState.originalPerformanceNow()
+        : performance.now();
+
+      const intervalState = {
+        callback,
+        args: extraArgs,
+        delay: normalizedDelay,
+        tickCount: 0,
+        pending: [],
+        creationTime: Math.max(0, now - origin),
+      };
+
+      let handle = null;
+      const wrapped = function intervalWrapper() {
+        intervalState.tickCount += 1;
+        const scheduledTime =
+          intervalState.creationTime + intervalState.tickCount * intervalState.delay;
+
+        if (automationState.intervalDispatchEnabled === false) {
+          if (intervalState.pending.length >= 10_000) {
+            // Prevent unbounded growth when authors create extremely short intervals.
+            intervalState.pending.shift();
+          }
+          intervalState.pending.push({
+            scheduledTime,
+            args: Array.prototype.slice.call(arguments),
+          });
+          return;
+        }
+
+        try {
+          return callback.apply(window, arguments);
+        } catch (error) {
+          console.error('setInterval callback failed', error);
+        }
+      };
+
+      handle = originalSetInterval(wrapped, normalizedDelay, ...intervalState.args);
+      trackedIntervals.set(handle, intervalState);
+      return handle;
+    };
+
+    window.clearInterval = (handle) => {
+      trackedIntervals.delete(handle);
+      return originalClearInterval(handle);
+    };
+
+    automationState.setIntervalDispatchEnabled = (enabled) => {
+      automationState.intervalDispatchEnabled = enabled !== false;
+    };
+
+    automationState.flushIntervalCallbacks = (targetTimestamp) => {
+      const iterationCap = 10_000;
+      let processed = 0;
+
+      const isNumber = typeof targetTimestamp === 'number' && Number.isFinite(targetTimestamp);
+
+      for (const state of trackedIntervals.values()) {
+        while (state.pending.length > 0 && processed < iterationCap) {
+          const next = state.pending[0];
+
+          if (isNumber && next.scheduledTime > targetTimestamp) {
+            break;
+          }
+
+          state.pending.shift();
+
+          try {
+            state.callback.apply(window, next.args);
+          } catch (error) {
+            console.warn('Failed to flush setInterval callback', error);
+          }
+
+          processed += 1;
+        }
+      }
+
+      if (processed >= iterationCap) {
+        console.warn(
+          'Stopped flushing setInterval callbacks after reaching the iteration cap.'
+        );
+      }
     };
 
     automationState.setPerformanceNowOverride = (fixedTimestamp) => {
@@ -707,6 +833,18 @@ async function captureAnimationFile(browser, animationFile, config) {
       policy: 'pauseIfNetworkFetchesPending',
       budget: 0,
       initialVirtualTime: 0,
+    });
+
+    await page.evaluate(() => {
+      const automationState = window.__captureAutomation;
+
+      if (automationState?.setIntervalDispatchEnabled) {
+        try {
+          automationState.setIntervalDispatchEnabled(false);
+        } catch (error) {
+          console.warn('Failed to disable interval dispatch before capture', error);
+        }
+      }
     });
 
     // Ensure raster-based animations such as GIFs have finished decoding
