@@ -87,6 +87,13 @@ const FRAMEWORK_PATCHES = [
       automationState.animeLifecyclePatched = true;
 
       const patchedInstances = new WeakSet();
+      const trackedInstances =
+        (automationState.animeTrackedInstances ||= new Set());
+
+      automationState.getTrackedAnimeInstances = () =>
+        Array.from(trackedInstances).filter(
+          (instance) => instance && typeof instance === 'object'
+        );
 
       // Recursively decorates an anime.js instance and its children so bootstrap state is preserved after virtual seeks.
       const patchInstance = (instance) => {
@@ -95,6 +102,7 @@ const FRAMEWORK_PATCHES = [
         }
 
         patchedInstances.add(instance);
+        trackedInstances.add(instance);
 
         if (Array.isArray(instance.children)) {
           instance.children.forEach(patchInstance);
@@ -407,18 +415,23 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
-    const animeFactory = window.anime;
-    if (animeFactory && Array.isArray(animeFactory.running)) {
-      for (const instance of animeFactory.running) {
-        if (!instance || typeof instance.seek !== 'function') {
-          continue;
-        }
+    const trackedInstances =
+      (automationState?.getTrackedAnimeInstances?.() || [])
+        .concat(Array.isArray(window.anime?.running) ? window.anime.running : []);
 
-        try {
-          instance.seek(targetTimeMs);
-        } catch (error) {
-          console.warn('Failed to seek anime.js instance to target time', error);
-        }
+    const seen = new Set();
+
+    for (const instance of trackedInstances) {
+      if (!instance || typeof instance.seek !== 'function' || seen.has(instance)) {
+        continue;
+      }
+
+      seen.add(instance);
+
+      try {
+        instance.seek(targetTimeMs);
+      } catch (error) {
+        console.warn('Failed to seek anime.js instance to target time', error);
       }
     }
   }, targetTimeMs);
