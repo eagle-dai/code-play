@@ -18,8 +18,9 @@ restores missing lifecycle hooks:
 
 * A `requestAnimationFrame` probe counts initial ticks so that the automation
   waits for the first frame of real time before seizing virtual time control.
-* The bootstrap window now caps at 0.5 seconds so delayed media reveals (for
-  example videos that fade in after a `setTimeout`) remain hidden until the
+* The bootstrap window now caps at roughly 0.25 seconds so delayed media
+  reveals (for example videos that fade in after a `setTimeout`) remain hidden
+  until the
   virtual timeline advances past their trigger point.
 * The interceptor wraps the global `anime` factory (and timelines it creates)
   and primes an instance's `currentTime` before the first virtual-time
