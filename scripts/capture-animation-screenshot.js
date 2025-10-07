@@ -700,7 +700,11 @@ async function waitForAnimationBootstrap(page, config) {
     return;
   }
 
-  const initialWait = Math.max(0, config.minInitialRealtimeWaitMs);
+  const initialWait = Math.min(
+    Math.max(0, config.minInitialRealtimeWaitMs),
+    config.maxInitialRealtimeWaitMs
+  );
+
   await page.waitForTimeout(initialWait);
 
   const remainingBudget = Math.max(
