@@ -619,7 +619,7 @@ async function injectRafProbe(context) {
     });
 
     const pendingCallbacks = new Map();
-    const registeredCallbacks = new Set();
+    const registeredCallbacks = new Map();
     automationState.disableRafScheduling = false;
 
     window.requestAnimationFrame = (callback) => {
@@ -627,21 +627,22 @@ async function injectRafProbe(context) {
         return 0;
       }
 
-      registeredCallbacks.add(callback);
-
       let handle;
       const wrapped = (timestamp) => {
         automationState.rafTickCount += 1;
         pendingCallbacks.delete(handle);
+        registeredCallbacks.delete(handle);
         return callback(timestamp);
       };
       handle = originalRequestAnimationFrame((timestamp) => wrapped(timestamp));
-      pendingCallbacks.set(handle, wrapped);
+      pendingCallbacks.set(handle, { callback, wrapped });
+      registeredCallbacks.set(handle, callback);
       return handle;
     };
 
     window.cancelAnimationFrame = (handle) => {
       pendingCallbacks.delete(handle);
+      registeredCallbacks.delete(handle);
       return originalCancelAnimationFrame(handle);
     };
 
@@ -670,10 +671,10 @@ async function injectRafProbe(context) {
       let iterations = 0;
 
       while (pendingCallbacks.size > 0 && iterations < iterationLimit) {
-        const callbacks = Array.from(pendingCallbacks.values());
+        const callbacks = Array.from(pendingCallbacks.entries());
         pendingCallbacks.clear();
 
-        for (const wrapped of callbacks) {
+        for (const [handle, { wrapped }] of callbacks) {
           try {
             wrapped(targetTimestamp);
           } catch (error) {
@@ -682,6 +683,7 @@ async function injectRafProbe(context) {
               error
             );
           }
+          registeredCallbacks.delete(handle);
         }
 
         iterations += 1;
@@ -700,11 +702,14 @@ async function injectRafProbe(context) {
       }
 
       automationState.disableRafScheduling = true;
+
+      const callbacks = Array.from(registeredCallbacks.entries());
       pendingCallbacks.clear();
 
       try {
-        for (const callback of Array.from(registeredCallbacks)) {
+        for (const [handle, callback] of callbacks) {
           try {
+            registeredCallbacks.delete(handle);
             callback.call(window, targetTimestamp);
           } catch (error) {
             console.warn(
@@ -954,11 +959,21 @@ async function runCaptureWorkflow() {
   }
 }
 
-(async () => {
-  try {
-    await runCaptureWorkflow();
-  } catch (error) {
-    console.error("Unexpected failure during capture workflow:", error);
-    process.exitCode = 1;
-  }
-})();
+if (require.main === module) {
+  (async () => {
+    try {
+      await runCaptureWorkflow();
+    } catch (error) {
+      console.error("Unexpected failure during capture workflow:", error);
+      process.exitCode = 1;
+    }
+  })();
+}
+
+module.exports = {
+  buildCaptureConfig,
+  buildCaptureTimeline,
+  containsWildcards,
+  resolveAnimationPattern,
+  wildcardToRegExp,
+};

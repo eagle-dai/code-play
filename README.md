@@ -32,7 +32,7 @@ DOM state as a human viewer would see at the default 4-second mark.
 
 ## Running the animation capture script
 
-The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save screenshots. Instead of jumping straight to the end, the script now advances virtual time in 100 ms increments and records a frame at each step, culminating in the 4-second capture. This mirrors the state changes an animation would experience frame by frame, which keeps lifecycle-driven UI in sync with real playback.
+The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save screenshots. Instead of jumping straight to the end, the script now advances virtual time in 200 ms increments and records a frame at each step, culminating in the 4-second capture. This mirrors the state changes an animation would experience frame by frame, which keeps lifecycle-driven UI in sync with real playback.
 
 Follow these steps to configure your environment and run the script:
 
@@ -67,7 +67,7 @@ Follow these steps to configure your environment and run the script:
    ```bash
    npm run capture:animation -- animejs-virtual-time.html
    ```
-   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. You can also supply wildcard patterns such as `animejs-*.html` or `*.html` to capture multiple files in a single run. The script writes a series of screenshots (100 ms apart by default) such as `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`.
+   Replace `animejs-virtual-time.html` with the HTML file you want to capture from `assets/example/`. You can also supply wildcard patterns such as `animejs-*.html` or `*.html` to capture multiple files in a single run. The script writes a series of screenshots (200 ms apart by default) such as `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`.
 
 If `playwright install-deps` is not available on your platform, refer to the list of packages documented in Playwright's [system requirements guide](https://playwright.dev/docs/intro#system-requirements).
 
@@ -77,7 +77,7 @@ After following the installation steps, use the commands below to confirm your e
 
 1. Install dependencies with `npm install`.
 2. Install the Chromium browser binary with `npx playwright install chromium` (and, on Linux, system libraries via `npx playwright install-deps`).
-3. Capture an example animation with `npm run capture:animation -- animejs-virtual-time.html`. You should see output similar to `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`, representing the 100 ms timeline.
+3. Capture an example animation with `npm run capture:animation -- animejs-virtual-time.html`. You should see output similar to `tmp/output/animejs-virtual-time-0000ms.png` through `tmp/output/animejs-virtual-time-4000ms.png`, representing the 200 ms timeline.
 
 ## Formatting scripts
 
