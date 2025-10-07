@@ -49,6 +49,43 @@ function buildCaptureConfig(argv, env = process.env) {
   });
 }
 
+function assertFiniteNumber(value, propertyName) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw new Error(
+      `Expected ${propertyName} to be a finite number. Received ${value}.`
+    );
+  }
+}
+
+function validateCaptureConfig(config) {
+  assertFiniteNumber(
+    config.minInitialRealtimeWaitMs,
+    "config.minInitialRealtimeWaitMs"
+  );
+  assertFiniteNumber(
+    config.maxInitialRealtimeWaitMs,
+    "config.maxInitialRealtimeWaitMs"
+  );
+
+  if (config.minInitialRealtimeWaitMs <= 0) {
+    throw new Error(
+      `Expected config.minInitialRealtimeWaitMs to be greater than 0. Received ${config.minInitialRealtimeWaitMs}.`
+    );
+  }
+
+  if (config.maxInitialRealtimeWaitMs <= 0) {
+    throw new Error(
+      `Expected config.maxInitialRealtimeWaitMs to be greater than 0. Received ${config.maxInitialRealtimeWaitMs}.`
+    );
+  }
+
+  if (config.maxInitialRealtimeWaitMs < config.minInitialRealtimeWaitMs) {
+    throw new Error(
+      `Expected config.maxInitialRealtimeWaitMs (${config.maxInitialRealtimeWaitMs}) to be greater than or equal to config.minInitialRealtimeWaitMs (${config.minInitialRealtimeWaitMs}).`
+    );
+  }
+}
+
 function resolveAnimationPattern(args) {
   if (args.length === 0) {
     throw new Error(
@@ -700,8 +737,14 @@ async function waitForAnimationBootstrap(page, config) {
     return;
   }
 
-  const initialWait = Math.max(0, config.minInitialRealtimeWaitMs);
-  await page.waitForTimeout(initialWait);
+  const initialWait = Math.min(
+    config.minInitialRealtimeWaitMs,
+    config.maxInitialRealtimeWaitMs
+  );
+
+  if (initialWait > 0) {
+    await page.waitForTimeout(initialWait);
+  }
 
   const remainingBudget = Math.max(
     0,
@@ -836,6 +879,7 @@ async function runCaptureWorkflow() {
 
   try {
     config = buildCaptureConfig(process.argv.slice(2));
+    validateCaptureConfig(config);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
