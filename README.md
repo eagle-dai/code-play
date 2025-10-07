@@ -32,7 +32,7 @@ DOM state as a human viewer would see at the default 4-second mark.
 
 ## Running the animation capture script
 
-The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and save screenshots. Instead of jumping straight to the end, the script now advances virtual time in 200 ms increments and records a frame at each step, culminating in the 4-second capture. This mirrors the state changes an animation would experience frame by frame, which keeps lifecycle-driven UI in sync with real playback.
+The repository provides `scripts/capture-animation-screenshot.js`, which uses [Playwright](https://playwright.dev/) and Chrome DevTools Protocol virtual time to jump to the default 4-second mark of an HTML animation example under `assets/example/` and saves screenshots. Instead of jumping straight to the end, the script now advances virtual time in 200 ms increments and records a frame at each step, culminating in the 4-second capture. This mirrors the state changes an animation would experience frame by frame, which keeps lifecycle-driven UI in sync with real playback.
 
 Follow these steps to configure your environment and run the script:
 
@@ -87,4 +87,4 @@ To keep code style consistent with the Prettier – Code formatter settings used
 npm run format
 ```
 
-This command applies Prettier's defaults to every file under `scripts/`, matching the formatting you would get from the VS Code extension.
+This command applies Prettier's defaults to each JavaScript file directly inside `scripts/`, matching the formatting you would get from the VS Code extension.

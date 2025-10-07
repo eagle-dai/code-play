@@ -50,7 +50,7 @@ function buildCaptureConfig(argv, env = process.env) {
 }
 
 function assertFiniteNumber(value, propertyName) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
     throw new Error(
       `Expected ${propertyName} to be a finite number. Received ${value}.`
     );
@@ -974,6 +974,7 @@ module.exports = {
   buildCaptureConfig,
   buildCaptureTimeline,
   containsWildcards,
+  validateCaptureConfig,
   resolveAnimationPattern,
   wildcardToRegExp,
 };

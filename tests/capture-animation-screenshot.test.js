@@ -5,6 +5,7 @@ const {
   buildCaptureTimeline,
   containsWildcards,
   resolveAnimationPattern,
+  validateCaptureConfig,
   wildcardToRegExp,
 } = require('../scripts/capture-animation-screenshot');
 
@@ -32,4 +33,21 @@ test('wildcard matching utilities respect glob semantics case-insensitively', ()
   assert.ok(matcher.test('demo-ab.html'));
   assert.ok(matcher.test('Demo-12.htmL'));
   assert.ok(!matcher.test('demo-abc.html'));
+});
+
+test('validateCaptureConfig rejects non-finite bootstrap waits', () => {
+  const validConfig = {
+    minInitialRealtimeWaitMs: 120,
+    maxInitialRealtimeWaitMs: 1_000,
+  };
+
+  assert.doesNotThrow(() => validateCaptureConfig(validConfig));
+  assert.throws(
+    () => validateCaptureConfig({ ...validConfig, minInitialRealtimeWaitMs: Infinity }),
+    /finite number/
+  );
+  assert.throws(
+    () => validateCaptureConfig({ ...validConfig, maxInitialRealtimeWaitMs: Infinity }),
+    /finite number/
+  );
 });
