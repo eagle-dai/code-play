@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "capture:animation": "node scripts/capture-animation-screenshot.js",
-    "format": "prettier --write \"scripts/*.js\""
+    "format": "prettier --write \"scripts/*.js\"",
+    "test": "node --test"
   },
   "dependencies": {
     "playwright": "^1.43.0"
