@@ -693,6 +693,25 @@ async function synchronizeAnimationState(page, targetTimeMs) {
   }, targetTimeMs);
 }
 
+// Restores performance.now() to its native implementation so upcoming virtual time
+// advances reflect the browser-provided timestamp rather than a fixed override.
+async function restorePerformanceNow(page) {
+  await page.evaluate(() => {
+    const overrideSetter =
+      window.__captureAutomation?.setPerformanceNowOverride;
+
+    if (typeof overrideSetter !== "function") {
+      return;
+    }
+
+    try {
+      overrideSetter();
+    } catch (error) {
+      console.warn("Failed to restore performance.now()", error);
+    }
+  });
+}
+
 // Adds a Playwright init script that counts requestAnimationFrame ticks for bootstrap tracking.
 async function injectRafProbe(context) {
   // Sets up instrumentation before any page script runs inside the context.
@@ -908,6 +927,7 @@ async function captureAnimationFile(browser, animationFile, config) {
       const delta = normalizedTimestamp - currentVirtualTime;
 
       if (delta > 0) {
+        await restorePerformanceNow(page);
         await advanceVirtualTime(client, delta);
         currentVirtualTime = normalizedTimestamp;
       }
@@ -933,6 +953,8 @@ async function captureAnimationFile(browser, animationFile, config) {
       await page.screenshot({ path: screenshotPath });
       screenshotPaths.push(screenshotPath);
     }
+
+    await restorePerformanceNow(page);
 
     return screenshotPaths;
   } finally {
