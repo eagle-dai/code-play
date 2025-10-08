@@ -316,6 +316,24 @@ const FRAMEWORK_PATCHES = [
         return instance;
       };
 
+      automationState.patchAnimeInstance = (instance) =>
+        patchInstance(instance);
+      automationState.patchAnimeInstances = (collection) => {
+        if (!collection) {
+          return [];
+        }
+
+        const values = Array.isArray(collection)
+          ? collection
+          : typeof collection[Symbol.iterator] === "function"
+            ? Array.from(collection)
+            : [];
+
+        return values
+          .filter((value) => value && typeof value === "object")
+          .map((value) => patchInstance(value));
+      };
+
       // Wraps the anime.js factory so every returned instance is patched before user code sees it.
       const wrapAnimeFactory = (factory) => {
         // Produces a patched anime.js instance from the original factory call.
@@ -618,23 +636,88 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
-    const trackedInstances = (
-      automationState?.getTrackedAnimeInstances?.() || []
-    ).concat(Array.isArray(window.anime?.running) ? window.anime.running : []);
+    const collectAnimeInstances = () => {
+      const seen = new Set();
+      const instances = [];
 
-    const seen = new Set();
+      const ensurePatched = (candidate) => {
+        if (!candidate || typeof candidate !== "object") {
+          return null;
+        }
 
-    for (const instance of trackedInstances) {
-      if (
-        !instance ||
-        typeof instance.seek !== "function" ||
-        seen.has(instance)
-      ) {
-        continue;
+        try {
+          automationState?.patchAnimeInstance?.(candidate);
+        } catch (error) {
+          console.warn("Failed to patch anime.js instance", error);
+        }
+
+        return candidate;
+      };
+
+      const append = (collection) => {
+        if (!collection) {
+          return;
+        }
+
+        let values;
+        if (Array.isArray(collection)) {
+          values = collection;
+        } else if (typeof collection[Symbol.iterator] === "function") {
+          try {
+            values = Array.from(collection);
+          } catch (error) {
+            console.warn(
+              "Failed to enumerate anime.js instance collection",
+              error
+            );
+            return;
+          }
+        } else {
+          return;
+        }
+
+        for (const value of values) {
+          const instance = ensurePatched(value);
+          if (
+            instance &&
+            typeof instance.seek === "function" &&
+            !seen.has(instance)
+          ) {
+            seen.add(instance);
+            instances.push(instance);
+          }
+        }
+      };
+
+      try {
+        append(automationState?.getTrackedAnimeInstances?.());
+      } catch (error) {
+        console.warn(
+          "Failed to query patched anime.js instance registry",
+          error
+        );
       }
 
-      seen.add(instance);
+      try {
+        append(window.anime?.running);
+      } catch (error) {
+        console.warn("Failed to collect anime.running instances", error);
+      }
 
+      try {
+        if (typeof window.anime?.getAllInstances === "function") {
+          append(window.anime.getAllInstances());
+        }
+      } catch (error) {
+        console.warn("Failed to query anime.getAllInstances()", error);
+      }
+
+      return instances;
+    };
+
+    const trackedInstances = collectAnimeInstances();
+
+    for (const instance of trackedInstances) {
       try {
         instance.seek(targetTimeMs);
       } catch (error) {
