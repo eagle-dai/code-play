@@ -661,9 +661,16 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
+    let executedCallbacks = 0;
+    let pendingRafCount = 0;
+    let pendingCountKnown = false;
+
     if (automationState?.flushRafCallbacks) {
       try {
-        automationState.flushRafCallbacks(rafTimestamp);
+        const count = automationState.flushRafCallbacks(rafTimestamp);
+        if (Number.isFinite(count)) {
+          executedCallbacks += count;
+        }
       } catch (error) {
         console.warn("Failed to flush requestAnimationFrame callbacks", error);
       }
@@ -671,10 +678,43 @@ async function synchronizeAnimationState(page, targetTimeMs) {
 
     if (automationState?.runRafCallbacksImmediately) {
       try {
-        automationState.runRafCallbacksImmediately(rafTimestamp);
+        const count = automationState.runRafCallbacksImmediately(rafTimestamp);
+        if (Number.isFinite(count)) {
+          executedCallbacks += count;
+        }
       } catch (error) {
         console.warn(
           "Failed to invoke requestAnimationFrame callbacks directly",
+          error
+        );
+      }
+    }
+
+    if (typeof automationState?.countPendingRafCallbacks === "function") {
+      try {
+        const pending = automationState.countPendingRafCallbacks();
+        if (Number.isFinite(pending)) {
+          pendingRafCount = pending;
+          pendingCountKnown = true;
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to inspect requestAnimationFrame callback state",
+          error
+        );
+      }
+    }
+
+    const shouldReplayLoopCallbacks =
+      (pendingCountKnown && pendingRafCount === 0) ||
+      (!pendingCountKnown && executedCallbacks === 0);
+
+    if (shouldReplayLoopCallbacks && automationState?.runLoopedRafCallbacks) {
+      try {
+        automationState.runLoopedRafCallbacks(rafTimestamp);
+      } catch (error) {
+        console.warn(
+          "Failed to replay cached requestAnimationFrame callbacks",
           error
         );
       }
@@ -778,11 +818,25 @@ async function injectRafProbe(context) {
 
     const pendingCallbacks = new Map();
     const registeredCallbacks = new Map();
+    const callbackStats = new Map();
+    const loopCallbacks = new Set();
     automationState.disableRafScheduling = false;
 
     window.requestAnimationFrame = (callback) => {
       if (automationState.disableRafScheduling) {
         return 0;
+      }
+
+      let stats = callbackStats.get(callback);
+      if (!stats) {
+        stats = { scheduledCount: 0 };
+        callbackStats.set(callback, stats);
+      }
+
+      stats.scheduledCount += 1;
+
+      if (stats.scheduledCount >= 2) {
+        loopCallbacks.add(callback);
       }
 
       let handle;
@@ -819,35 +873,41 @@ async function injectRafProbe(context) {
 
     automationState.flushRafCallbacks = (targetTimestamp) => {
       if (pendingCallbacks.size === 0) {
-        return;
+        return 0;
       }
 
       const callbacks = Array.from(pendingCallbacks.entries());
       pendingCallbacks.clear();
+      let executed = 0;
 
       for (const [handle, { wrapped }] of callbacks) {
         try {
           wrapped(targetTimestamp);
+          executed += 1;
         } catch (error) {
           console.warn("Failed to flush requestAnimationFrame callback", error);
         }
 
         registeredCallbacks.delete(handle);
       }
+
+      return executed;
     };
 
     automationState.runRafCallbacksImmediately = (targetTimestamp) => {
       if (registeredCallbacks.size === 0) {
-        return;
+        return 0;
       }
 
       const callbacks = Array.from(registeredCallbacks.entries());
+      let executed = 0;
 
       for (const [handle, callback] of callbacks) {
         try {
           registeredCallbacks.delete(handle);
           pendingCallbacks.delete(handle);
           callback.call(window, targetTimestamp);
+          executed += 1;
         } catch (error) {
           console.warn(
             "Failed to invoke requestAnimationFrame callback directly",
@@ -855,7 +915,34 @@ async function injectRafProbe(context) {
           );
         }
       }
+
+      return executed;
     };
+
+    automationState.runLoopedRafCallbacks = (targetTimestamp) => {
+      if (loopCallbacks.size === 0) {
+        return 0;
+      }
+
+      let executed = 0;
+
+      for (const callback of loopCallbacks) {
+        try {
+          callback.call(window, targetTimestamp);
+          executed += 1;
+        } catch (error) {
+          console.warn(
+            "Failed to replay looping requestAnimationFrame callback",
+            error
+          );
+        }
+      }
+
+      return executed;
+    };
+
+    automationState.countPendingRafCallbacks = () =>
+      pendingCallbacks.size + registeredCallbacks.size;
   });
 }
 
