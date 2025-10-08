@@ -301,6 +301,107 @@ const FRAMEWORK_PATCHES = [
 
       // Wraps the anime.js factory so every returned instance is patched before user code sees it.
       const wrapAnimeFactory = (factory) => {
+        const copyDescriptorsOnto = (target, source) => {
+          const descriptors = Object.getOwnPropertyDescriptors(source);
+          for (const key of Reflect.ownKeys(descriptors)) {
+            if (
+              key === "length" ||
+              key === "name" ||
+              key === "arguments" ||
+              key === "caller"
+            ) {
+              continue;
+            }
+
+            Object.defineProperty(target, key, descriptors[key]);
+          }
+        };
+
+        const patchMethod = (target, source, methodName) => {
+          const originalMethod = source?.[methodName];
+          if (typeof originalMethod !== "function") {
+            return;
+          }
+
+          Object.defineProperty(target, methodName, {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: function patchedMethod() {
+              const instance = originalMethod.apply(source, arguments);
+              return patchInstance(instance);
+            },
+          });
+        };
+
+        if (typeof factory !== "function") {
+          const wrapMethodNames = new Set(["createTimeline", "timeline", "animate"]);
+          const wrappedMethods = new Map();
+
+          return new Proxy(factory, {
+            get(target, property, receiver) {
+              if (property === "__captureOriginalFactory") {
+                return target;
+              }
+
+              const value = Reflect.get(target, property, receiver);
+
+              if (
+                typeof property === "string" &&
+                wrapMethodNames.has(property) &&
+                typeof value === "function"
+              ) {
+                if (wrappedMethods.has(property)) {
+                  return wrappedMethods.get(property);
+                }
+
+                const wrappedMethod = function patchedMethod() {
+                  const instance = value.apply(target, arguments);
+                  return patchInstance(instance);
+                };
+
+                wrappedMethods.set(property, wrappedMethod);
+                return wrappedMethod;
+              }
+
+              return value;
+            },
+            set(target, property, value, receiver) {
+              if (property === "__captureOriginalFactory") {
+                return true;
+              }
+
+              return Reflect.set(target, property, value, receiver);
+            },
+            has(target, property) {
+              if (property === "__captureOriginalFactory") {
+                return true;
+              }
+
+              return Reflect.has(target, property);
+            },
+            ownKeys(target) {
+              const keys = Reflect.ownKeys(target);
+              if (!keys.includes("__captureOriginalFactory")) {
+                keys.push("__captureOriginalFactory");
+              }
+              return keys;
+            },
+            getOwnPropertyDescriptor(target, property) {
+              if (property === "__captureOriginalFactory") {
+                return {
+                  configurable: true,
+                  enumerable: false,
+                  writable: true,
+                  value: target,
+                };
+              }
+
+              return Object.getOwnPropertyDescriptor(target, property);
+            },
+          });
+        }
+
         // Produces a patched anime.js instance from the original factory call.
         const wrapped = function wrappedAnime() {
           // Every anime.js invocation yields a timeline/animation object. Patch
@@ -311,35 +412,11 @@ const FRAMEWORK_PATCHES = [
           return patchInstance(instance);
         };
 
-        const descriptors = Object.getOwnPropertyDescriptors(factory);
-        for (const key of Object.keys(descriptors)) {
-          if (
-            key === "length" ||
-            key === "name" ||
-            key === "arguments" ||
-            key === "caller"
-          ) {
-            continue;
-          }
+        copyDescriptorsOnto(wrapped, factory);
 
-          Object.defineProperty(wrapped, key, descriptors[key]);
-        }
-
-        if (typeof factory.timeline === "function") {
-          Object.defineProperty(wrapped, "timeline", {
-            configurable: true,
-            enumerable: true,
-            writable: true,
-            // Ensures nested timelines created via anime.timeline() inherit the bootstrap patch.
-            value: function timelineWrapper() {
-              // `anime.timeline()` constructs nested timelines without routing
-              // through the main factory function. Mirror the same patch step
-              // so the bootstrap logic remains consistent across APIs.
-              const instance = factory.timeline.apply(factory, arguments);
-              return patchInstance(instance);
-            },
-          });
-        }
+        patchMethod(wrapped, factory, "timeline");
+        patchMethod(wrapped, factory, "createTimeline");
+        patchMethod(wrapped, factory, "animate");
 
         return wrapped;
       };
