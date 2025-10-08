@@ -770,32 +770,21 @@ async function injectRafProbe(context) {
     };
 
     automationState.flushRafCallbacks = (targetTimestamp) => {
-      const iterationLimit = 1000;
-      let iterations = 0;
-
-      while (pendingCallbacks.size > 0 && iterations < iterationLimit) {
-        const callbacks = Array.from(pendingCallbacks.entries());
-        pendingCallbacks.clear();
-
-        for (const [handle, { wrapped }] of callbacks) {
-          try {
-            wrapped(targetTimestamp);
-          } catch (error) {
-            console.warn(
-              "Failed to flush requestAnimationFrame callback",
-              error
-            );
-          }
-          registeredCallbacks.delete(handle);
-        }
-
-        iterations += 1;
+      if (pendingCallbacks.size === 0) {
+        return;
       }
 
-      if (pendingCallbacks.size > 0) {
-        console.warn(
-          "Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap."
-        );
+      const callbacks = Array.from(pendingCallbacks.entries());
+      pendingCallbacks.clear();
+
+      for (const [handle, { wrapped }] of callbacks) {
+        try {
+          wrapped(targetTimestamp);
+        } catch (error) {
+          console.warn("Failed to flush requestAnimationFrame callback", error);
+        }
+
+        registeredCallbacks.delete(handle);
       }
     };
 
@@ -804,25 +793,19 @@ async function injectRafProbe(context) {
         return;
       }
 
-      automationState.disableRafScheduling = true;
-
       const callbacks = Array.from(registeredCallbacks.entries());
-      pendingCallbacks.clear();
 
-      try {
-        for (const [handle, callback] of callbacks) {
-          try {
-            registeredCallbacks.delete(handle);
-            callback.call(window, targetTimestamp);
-          } catch (error) {
-            console.warn(
-              "Failed to invoke requestAnimationFrame callback directly",
-              error
-            );
-          }
+      for (const [handle, callback] of callbacks) {
+        try {
+          registeredCallbacks.delete(handle);
+          pendingCallbacks.delete(handle);
+          callback.call(window, targetTimestamp);
+        } catch (error) {
+          console.warn(
+            "Failed to invoke requestAnimationFrame callback directly",
+            error
+          );
         }
-      } finally {
-        automationState.disableRafScheduling = false;
       }
     };
   });
