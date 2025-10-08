@@ -629,10 +629,15 @@ function buildCaptureTimeline(targetTimeMs, intervalMs) {
 async function synchronizeAnimationState(page, targetTimeMs) {
   await page.evaluate((targetTimeMs) => {
     const automationState = window.__captureAutomation;
+    let rafTimestamp = targetTimeMs;
 
     if (automationState?.setPerformanceNowOverride) {
       try {
-        automationState.setPerformanceNowOverride(targetTimeMs);
+        const overrideValue =
+          automationState.setPerformanceNowOverride(targetTimeMs);
+        if (Number.isFinite(overrideValue)) {
+          rafTimestamp = overrideValue;
+        }
       } catch (error) {
         console.warn("Failed to override performance.now()", error);
       }
@@ -650,7 +655,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
 
     if (automationState?.flushRafCallbacks) {
       try {
-        automationState.flushRafCallbacks(targetTimeMs);
+        automationState.flushRafCallbacks(rafTimestamp);
       } catch (error) {
         console.warn("Failed to flush requestAnimationFrame callbacks", error);
       }
@@ -658,7 +663,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
 
     if (automationState?.runRafCallbacksImmediately) {
       try {
-        automationState.runRafCallbacksImmediately(targetTimeMs);
+        automationState.runRafCallbacksImmediately(rafTimestamp);
       } catch (error) {
         console.warn(
           "Failed to invoke requestAnimationFrame callbacks directly",
@@ -776,16 +781,19 @@ async function injectRafProbe(context) {
             : typeof automationState.performanceNowOrigin === "number"
               ? automationState.performanceNowOrigin
               : 0;
+        const overrideValue = origin + fixedTimestamp;
         Object.defineProperty(performance, "now", {
           configurable: true,
-          value: () => origin + fixedTimestamp,
+          value: () => overrideValue,
         });
-      } else {
-        Object.defineProperty(performance, "now", {
-          configurable: true,
-          value: originalPerformanceNow,
-        });
+        return overrideValue;
       }
+
+      Object.defineProperty(performance, "now", {
+        configurable: true,
+        value: originalPerformanceNow,
+      });
+      return null;
     };
 
     automationState.flushRafCallbacks = (targetTimestamp) => {
