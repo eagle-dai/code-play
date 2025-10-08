@@ -630,6 +630,7 @@ async function synchronizeAnimationState(page, targetTimeMs) {
   await page.evaluate((targetTimeMs) => {
     const automationState = window.__captureAutomation;
     let rafTimestamp = targetTimeMs;
+    let restorePerformanceNow;
 
     if (automationState?.setPerformanceNowOverride) {
       try {
@@ -638,6 +639,13 @@ async function synchronizeAnimationState(page, targetTimeMs) {
         if (Number.isFinite(overrideValue)) {
           rafTimestamp = overrideValue;
         }
+        restorePerformanceNow = () => {
+          try {
+            automationState.setPerformanceNowOverride();
+          } catch (error) {
+            console.warn("Failed to restore performance.now()", error);
+          }
+        };
       } catch (error) {
         console.warn("Failed to override performance.now()", error);
       }
@@ -694,6 +702,10 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       } catch (error) {
         console.warn("Failed to seek anime.js instance to target time", error);
       }
+    }
+
+    if (typeof restorePerformanceNow === "function") {
+      restorePerformanceNow();
     }
   }, targetTimeMs);
 }
