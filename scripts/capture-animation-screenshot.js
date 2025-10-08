@@ -742,18 +742,37 @@ async function injectRafProbe(context) {
       window.cancelAnimationFrame.bind(window);
     const originalPerformanceNow = performance.now.bind(performance);
     automationState.originalPerformanceNow = originalPerformanceNow;
-    automationState.performanceNowOrigin = performance.now();
 
-    let firstPerformanceNow = null;
+    const performanceNowState = {
+      active: false,
+      baseline: null,
+      overrideValue: null,
+    };
+
+    const ensurePerformanceBaseline = () => {
+      if (performanceNowState.baseline !== null) {
+        return performanceNowState.baseline;
+      }
+
+      const value = originalPerformanceNow();
+      performanceNowState.baseline = value;
+      automationState.firstPerformanceNow = value;
+      return value;
+    };
+
     Object.defineProperty(performance, "now", {
       configurable: true,
       value: () => {
-        const value = originalPerformanceNow();
-        if (firstPerformanceNow === null) {
-          firstPerformanceNow = value;
-          automationState.firstPerformanceNow = value;
+        if (!performanceNowState.active) {
+          const value = originalPerformanceNow();
+          if (performanceNowState.baseline === null) {
+            performanceNowState.baseline = value;
+            automationState.firstPerformanceNow = value;
+          }
+          return value;
         }
-        return value;
+
+        return performanceNowState.overrideValue;
       },
     });
 
@@ -787,24 +806,14 @@ async function injectRafProbe(context) {
 
     automationState.setPerformanceNowOverride = (fixedTimestamp) => {
       if (typeof fixedTimestamp === "number") {
-        const origin =
-          typeof automationState.firstPerformanceNow === "number"
-            ? automationState.firstPerformanceNow
-            : typeof automationState.performanceNowOrigin === "number"
-              ? automationState.performanceNowOrigin
-              : 0;
-        const overrideValue = origin + fixedTimestamp;
-        Object.defineProperty(performance, "now", {
-          configurable: true,
-          value: () => overrideValue,
-        });
-        return overrideValue;
+        const baseline = ensurePerformanceBaseline();
+        performanceNowState.overrideValue = baseline + fixedTimestamp;
+        performanceNowState.active = true;
+        return performanceNowState.overrideValue;
       }
 
-      Object.defineProperty(performance, "now", {
-        configurable: true,
-        value: originalPerformanceNow,
-      });
+      performanceNowState.overrideValue = null;
+      performanceNowState.active = false;
       return null;
     };
 
