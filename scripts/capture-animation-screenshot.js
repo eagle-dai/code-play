@@ -186,6 +186,29 @@ const FRAMEWORK_PATCHES = [
       const trackedInstances = (automationState.animeTrackedInstances ||=
         new Set());
 
+      const enumerateChildAnimations = (instance, callback) => {
+        if (!instance || typeof instance !== "object") {
+          return;
+        }
+
+        if (Array.isArray(instance.children)) {
+          for (const child of instance.children) {
+            if (child && typeof child === "object") {
+              callback(child);
+            }
+          }
+        }
+
+        const visited = new Set();
+        let cursor = instance._head;
+
+        while (cursor && typeof cursor === "object" && !visited.has(cursor)) {
+          visited.add(cursor);
+          callback(cursor);
+          cursor = cursor._next;
+        }
+      };
+
       automationState.getTrackedAnimeInstances = () =>
         Array.from(trackedInstances).filter(
           (instance) => instance && typeof instance === "object"
@@ -204,9 +227,7 @@ const FRAMEWORK_PATCHES = [
         patchedInstances.add(instance);
         trackedInstances.add(instance);
 
-        if (Array.isArray(instance.children)) {
-          instance.children.forEach(patchInstance);
-        }
+        enumerateChildAnimations(instance, patchInstance);
 
         const originalSeek =
           typeof instance.seek === "function" ? instance.seek : null;
@@ -274,9 +295,7 @@ const FRAMEWORK_PATCHES = [
             // children need to be re-patched so any subsequent virtual-time
             // seeks continue to respect the bootstrap shim.
             const result = originalReset.apply(this, arguments);
-            if (Array.isArray(instance.children)) {
-              instance.children.forEach(patchInstance);
-            }
+            enumerateChildAnimations(instance, patchInstance);
             return result;
           };
         }
@@ -289,9 +308,7 @@ const FRAMEWORK_PATCHES = [
             // patched seek behavior. Recurse after the native call so we only
             // touch the newly inserted nodes.
             const result = originalAdd.apply(this, arguments);
-            if (Array.isArray(instance.children)) {
-              instance.children.forEach(patchInstance);
-            }
+            enumerateChildAnimations(instance, patchInstance);
             return result;
           };
         }
