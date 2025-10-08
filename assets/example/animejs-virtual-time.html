@@ -87,18 +87,22 @@
       </div>
     </div>
 
-    <script src="./anime32.min.js"></script>
+    <script src="./anime40.umd.js"></script>
     <script>
       const STOP_AT_MS = 4000;
 
-      const tl = anime.timeline({
+      const tl = anime.createTimeline({
         easing: "easeOutQuad",
       });
 
       const timestampRafElement = document.getElementById("timestampRaf");
       const chromeVersionElement = document.getElementById("chromeVer");
       const dateElement = document.getElementById("date");
+      const textPageElement = document.getElementById("textPage");
       const versionInfoTargets = ["#date", "#chromeVer"];
+      const versionInfoElements = versionInfoTargets
+        .map((selector) => document.querySelector(selector))
+        .filter((element) => element !== null);
 
       let timestampStart = 0;
       let timestampAnimationFrameId = null;
@@ -182,7 +186,9 @@
 
       async function renderMain() {
         // show page
-        tl.set("#textPage", { visibility: "visible" });
+        if (textPageElement) {
+          textPageElement.style.visibility = "visible";
+        }
 
         // show text
         tl.add({
@@ -201,7 +207,9 @@
             opacity: [0, 1],
             duration: 2000,
             begin: function () {
-              tl.set(versionInfoTargets, { visibility: "visible" });
+              versionInfoElements.forEach((element) => {
+                element.style.visibility = "visible";
+              });
             },
           },
           "-=1000"
