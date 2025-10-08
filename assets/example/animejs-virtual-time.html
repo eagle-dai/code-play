@@ -89,11 +89,9 @@
 
     <script src="./anime42.umd.min.js"></script>
     <script>
-      const { createTimeline, utils } = anime;
-
       const STOP_AT_MS = 4000;
 
-      const tl = createTimeline({
+      const timeline = anime.createTimeline({
         defaults: {
           ease: "outQuad",
         },
@@ -180,16 +178,16 @@
 
       startTimestampTicker();
       setTimeout(() => {
-        tl.pause();
-        tl.seek(STOP_AT_MS);
+        timeline.pause();
+        timeline.seek(STOP_AT_MS);
       }, STOP_AT_MS);
 
       async function renderMain() {
         // show page
-        utils.set("#textPage", { visibility: "visible" });
+        anime.set("#textPage", { visibility: "visible" });
 
         // show text
-        tl.add({
+        timeline.add({
           targets: "#text",
           opacity: [0, 1],
           scale: [4, 1],
@@ -198,21 +196,21 @@
         });
 
         setVersionInfo();
-        tl.add(
+        timeline.add(
           {
             targets: versionInfoTargets,
             translateX: ["-100%", 0],
             opacity: [0, 1],
             duration: 2000,
-            onBegin: function () {
-              utils.set(versionInfoTargets, { visibility: "visible" });
+            begin: function () {
+              anime.set(versionInfoTargets, { visibility: "visible" });
             },
           },
           "-=1000"
         );
 
         // delay at the end
-        tl.add({ duration: 2000 }, 2000);
+        timeline.add({ duration: 2000 }, 2000);
       }
 
       window.onload = function () {
