@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -45,12 +45,16 @@
         top: 25%;
         width: 85%;
         text-align: center;
-        font: bold 5rem Arimo, sans-serif;
+        font:
+          bold 5rem Arimo,
+          sans-serif;
       }
       #timestampRaf {
         position: absolute;
         top: 5%;
-        font: bold 3rem Arimo, sans-serif;
+        font:
+          bold 3rem Arimo,
+          sans-serif;
         color: #f5f5f5;
         background: rgba(0, 0, 0, 0.4);
         padding: 0.5rem 1rem;
@@ -65,7 +69,9 @@
         width: 60%;
         top: 75%;
         text-align: right;
-        font: bold 2.5rem Arimo, sans-serif;
+        font:
+          bold 2.5rem Arimo,
+          sans-serif;
         color: lightcoral;
       }
       #date {
@@ -79,7 +85,8 @@
     <div id="pages">
       <div id="textPage" class="page">
         <div id="text">
-          This video is generated programmatically<br />by SAP Research and Innovation!
+          This video is generated programmatically<br />by SAP Research and
+          Innovation!
         </div>
         <div id="timestampRaf">00:00.000</div>
         <div id="chromeVer">VER</div>
@@ -189,8 +196,7 @@
         utils.set("#textPage", { visibility: "visible" });
 
         // show text
-        tl.add({
-          targets: "#text",
+        tl.add("#text", {
           opacity: [0, 1],
           scale: [4, 1],
           visibility: "visible",
@@ -199,8 +205,8 @@
 
         setVersionInfo();
         tl.add(
+          versionInfoTargets,
           {
-            targets: versionInfoTargets,
             translateX: ["-100%", 0],
             opacity: [0, 1],
             duration: 2000,
