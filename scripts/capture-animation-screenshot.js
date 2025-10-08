@@ -1,4 +1,3 @@
-const { chromium } = require("playwright");
 const fs = require("fs/promises");
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -140,8 +139,35 @@ function buildBrowserLaunchOptions(config) {
   return launchOptions;
 }
 
+function loadChromium() {
+  try {
+    const playwright = require("playwright");
+
+    if (!playwright?.chromium) {
+      throw new Error(
+        'Playwright is installed but does not expose a "chromium" browser type. Ensure the Playwright package is up to date.'
+      );
+    }
+
+    return playwright.chromium;
+  } catch (error) {
+    if (
+      error?.code === "MODULE_NOT_FOUND" &&
+      typeof error.message === "string" &&
+      error.message.includes("'playwright'")
+    ) {
+      throw new Error(
+        'Playwright is not installed. Run "npm install" before using the capture script.',
+        { cause: error }
+      );
+    }
+
+    throw error;
+  }
+}
+
 // Patches run before any page script executes. Each entry registers shims for a
-// specific animation framework so that virtual-time fast forwarding matches the
+// specific animation framework so that virtual-time fast-forwarding matches the
 // observable behavior of real-time playback.
 const FRAMEWORK_PATCHES = [
   {
@@ -912,6 +938,15 @@ async function runCaptureWorkflow() {
   }
 
   await fs.mkdir(config.outputDir, { recursive: true });
+
+  let chromium;
+  try {
+    chromium = loadChromium();
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
 
   let browser;
   try {

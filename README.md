@@ -55,12 +55,12 @@ Follow these steps to configure your environment and run the script:
 5. **(Optional) Tell Playwright to use a system-installed browser:**
    * To reuse an existing Chrome or Chromium installation that Playwright knows how to launch, set `PLAYWRIGHT_BROWSER_CHANNEL`. For example:
      ```bash
-     PLAYWRIGHT_BROWSER_CHANNEL=chrome npm run capture:animation
+     PLAYWRIGHT_BROWSER_CHANNEL=chrome npm run capture:animation -- animejs-virtual-time.html
      ```
      This uses the Chrome Stable channel shipped with your operating system.
    * To point at a specific executable path (for example a portable Chromium build), set `PLAYWRIGHT_CHROME_EXECUTABLE` instead:
      ```bash
-     PLAYWRIGHT_CHROME_EXECUTABLE="/usr/bin/google-chrome-stable" npm run capture:animation
+     PLAYWRIGHT_CHROME_EXECUTABLE="/usr/bin/google-chrome-stable" npm run capture:animation -- animejs-virtual-time.html
      ```
      When this variable is present the channel setting is ignored.
 6. **Run the capture script for a specific example (or pattern):**
