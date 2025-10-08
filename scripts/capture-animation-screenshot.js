@@ -736,6 +736,9 @@ async function synchronizeAnimationState(page, targetTimeMs) {
     for (const instance of trackedInstances) {
       try {
         instance.seek(targetTimeMs);
+        if (typeof instance.pause === "function") {
+          instance.pause();
+        }
       } catch (error) {
         console.warn("Failed to seek anime.js instance to target time", error);
       }
