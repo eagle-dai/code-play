@@ -25,6 +25,17 @@ test('resolveAnimationPattern validates HTML filenames and strips nothing else',
   assert.throws(() => resolveAnimationPattern([]), /Expected the HTML file name/);
 });
 
+test('resolveAnimationPattern rejects paths and surplus arguments', () => {
+  assert.throws(
+    () => resolveAnimationPattern(['nested/example.html']),
+    /Provide only the HTML file name/
+  );
+  assert.throws(
+    () => resolveAnimationPattern(['example.html', 'extra.html']),
+    /unexpected extra arguments/
+  );
+});
+
 test('wildcard matching utilities respect glob semantics case-insensitively', () => {
   assert.strictEqual(containsWildcards('demo.html'), false);
   assert.strictEqual(containsWildcards('demo-*.html'), true);
@@ -49,5 +60,22 @@ test('validateCaptureConfig rejects non-finite bootstrap waits', () => {
   assert.throws(
     () => validateCaptureConfig({ ...validConfig, maxInitialRealtimeWaitMs: Infinity }),
     /finite number/
+  );
+});
+
+test('validateCaptureConfig enforces max wait not falling below the minimum', () => {
+  const baseConfig = {
+    minInitialRealtimeWaitMs: 200,
+    maxInitialRealtimeWaitMs: 400,
+  };
+
+  assert.doesNotThrow(() => validateCaptureConfig(baseConfig));
+  assert.throws(
+    () =>
+      validateCaptureConfig({
+        ...baseConfig,
+        maxInitialRealtimeWaitMs: baseConfig.minInitialRealtimeWaitMs - 1,
+      }),
+    /greater than or equal/
   );
 });
