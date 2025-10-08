@@ -87,12 +87,16 @@
       </div>
     </div>
 
-    <script src="./anime32.min.js"></script>
+    <script src="./anime42.umd.min.js"></script>
     <script>
+      const { createTimeline, utils } = anime;
+
       const STOP_AT_MS = 4000;
 
-      const tl = anime.timeline({
-        easing: "easeOutQuad",
+      const tl = createTimeline({
+        defaults: {
+          ease: "outQuad",
+        },
       });
 
       const timestampRafElement = document.getElementById("timestampRaf");
@@ -182,7 +186,7 @@
 
       async function renderMain() {
         // show page
-        tl.set("#textPage", { visibility: "visible" });
+        utils.set("#textPage", { visibility: "visible" });
 
         // show text
         tl.add({
@@ -200,8 +204,8 @@
             translateX: ["-100%", 0],
             opacity: [0, 1],
             duration: 2000,
-            begin: function () {
-              tl.set(versionInfoTargets, { visibility: "visible" });
+            onBegin: function () {
+              utils.set(versionInfoTargets, { visibility: "visible" });
             },
           },
           "-=1000"
