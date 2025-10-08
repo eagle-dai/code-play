@@ -346,18 +346,34 @@ const FRAMEWORK_PATCHES = [
           return patchInstance(instance);
         };
 
-        const descriptors = Object.getOwnPropertyDescriptors(factory);
-        for (const key of Object.keys(descriptors)) {
-          if (
-            key === "length" ||
-            key === "name" ||
-            key === "arguments" ||
-            key === "caller"
-          ) {
-            continue;
-          }
+        try {
+          Object.setPrototypeOf(wrapped, factory);
+        } catch (error) {
+          const descriptors = Object.getOwnPropertyDescriptors(factory);
+          for (const key of Reflect.ownKeys(descriptors)) {
+            if (
+              key === "length" ||
+              key === "name" ||
+              key === "arguments" ||
+              key === "caller"
+            ) {
+              continue;
+            }
 
-          Object.defineProperty(wrapped, key, descriptors[key]);
+            Object.defineProperty(wrapped, key, descriptors[key]);
+          }
+        }
+
+        if (factory && Object.prototype.hasOwnProperty.call(factory, "prototype")) {
+          try {
+            Object.defineProperty(wrapped, "prototype", {
+              configurable: true,
+              writable: true,
+              value: factory.prototype,
+            });
+          } catch (error) {
+            wrapped.prototype = factory.prototype;
+          }
         }
 
         const wrapTimelineFactory = (factoryMethod) => {
