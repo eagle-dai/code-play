@@ -89,10 +89,14 @@
 
     <script src="./anime40.umd.js"></script>
     <script>
+      const { createTimeline } = anime;
+
       const STOP_AT_MS = 4000;
 
-      const tl = anime.createTimeline({
-        easing: "easeOutQuad",
+      const tl = createTimeline({
+        defaults: {
+          ease: "outQuad",
+        },
       });
 
       const timestampRafElement = document.getElementById("timestampRaf");
@@ -206,7 +210,7 @@
             translateX: ["-100%", 0],
             opacity: [0, 1],
             duration: 2000,
-            begin: function () {
+            onBegin: function () {
               versionInfoElements.forEach((element) => {
                 element.style.visibility = "visible";
               });
