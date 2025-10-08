@@ -341,6 +341,22 @@ const FRAMEWORK_PATCHES = [
           });
         }
 
+        if (typeof factory.createTimeline === "function") {
+          Object.defineProperty(wrapped, "createTimeline", {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            // Ensures anime.createTimeline() timelines also receive the bootstrap patch.
+            value: function createTimelineWrapper() {
+              // anime.createTimeline() was introduced in anime.js 4.x and bypasses the
+              // main factory entirely. Patch its returned timeline so virtual-time
+              // seeks remain consistent regardless of the creation helper in use.
+              const instance = factory.createTimeline.apply(factory, arguments);
+              return patchInstance(instance);
+            },
+          });
+        }
+
         return wrapped;
       };
 
