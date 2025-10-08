@@ -325,19 +325,30 @@ const FRAMEWORK_PATCHES = [
           Object.defineProperty(wrapped, key, descriptors[key]);
         }
 
+        const wrapTimelineFactory = (factoryMethod) => {
+          return function timelineWrapper() {
+            const instance = factoryMethod.apply(factory, arguments);
+            return patchInstance(instance);
+          };
+        };
+
         if (typeof factory.timeline === "function") {
           Object.defineProperty(wrapped, "timeline", {
             configurable: true,
             enumerable: true,
             writable: true,
             // Ensures nested timelines created via anime.timeline() inherit the bootstrap patch.
-            value: function timelineWrapper() {
-              // `anime.timeline()` constructs nested timelines without routing
-              // through the main factory function. Mirror the same patch step
-              // so the bootstrap logic remains consistent across APIs.
-              const instance = factory.timeline.apply(factory, arguments);
-              return patchInstance(instance);
-            },
+            value: wrapTimelineFactory(factory.timeline),
+          });
+        }
+
+        if (typeof factory.createTimeline === "function") {
+          Object.defineProperty(wrapped, "createTimeline", {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            // Mirrors the anime.timeline() wrapper for the createTimeline helper introduced in anime.js v4.
+            value: wrapTimelineFactory(factory.createTimeline),
           });
         }
 
