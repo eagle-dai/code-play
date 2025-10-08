@@ -804,11 +804,12 @@ async function waitForAnimationBootstrap(page, config) {
 async function captureAnimationFile(browser, animationFile, config) {
   const targetPath = path.resolve(config.exampleDir, animationFile);
   const context = await browser.newContext({ viewport: config.viewport });
-  const page = await context.newPage();
+  let page;
 
   try {
     await injectRafProbe(context);
     await injectFrameworkPatches(context);
+    page = await context.newPage();
     const fileUrl = pathToFileURL(targetPath).href;
     await page.goto(fileUrl, { waitUntil: "load" });
 
