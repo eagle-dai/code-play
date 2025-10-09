@@ -301,6 +301,107 @@ const FRAMEWORK_PATCHES = [
 
       // Wraps the anime.js factory so every returned instance is patched before user code sees it.
       const wrapAnimeFactory = (factory) => {
+        const copyDescriptorsOnto = (target, source) => {
+          const descriptors = Object.getOwnPropertyDescriptors(source);
+          for (const key of Reflect.ownKeys(descriptors)) {
+            if (
+              key === "length" ||
+              key === "name" ||
+              key === "arguments" ||
+              key === "caller"
+            ) {
+              continue;
+            }
+
+            Object.defineProperty(target, key, descriptors[key]);
+          }
+        };
+
+        const patchMethod = (target, source, methodName) => {
+          const originalMethod = source?.[methodName];
+          if (typeof originalMethod !== "function") {
+            return;
+          }
+
+          Object.defineProperty(target, methodName, {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: function patchedMethod() {
+              const instance = originalMethod.apply(source, arguments);
+              return patchInstance(instance);
+            },
+          });
+        };
+
+        if (typeof factory !== "function") {
+          const wrapMethodNames = new Set(["createTimeline", "timeline", "animate"]);
+          const wrappedMethods = new Map();
+
+          return new Proxy(factory, {
+            get(target, property, receiver) {
+              if (property === "__captureOriginalFactory") {
+                return target;
+              }
+
+              const value = Reflect.get(target, property, receiver);
+
+              if (
+                typeof property === "string" &&
+                wrapMethodNames.has(property) &&
+                typeof value === "function"
+              ) {
+                if (wrappedMethods.has(property)) {
+                  return wrappedMethods.get(property);
+                }
+
+                const wrappedMethod = function patchedMethod() {
+                  const instance = value.apply(target, arguments);
+                  return patchInstance(instance);
+                };
+
+                wrappedMethods.set(property, wrappedMethod);
+                return wrappedMethod;
+              }
+
+              return value;
+            },
+            set(target, property, value, receiver) {
+              if (property === "__captureOriginalFactory") {
+                return true;
+              }
+
+              return Reflect.set(target, property, value, receiver);
+            },
+            has(target, property) {
+              if (property === "__captureOriginalFactory") {
+                return true;
+              }
+
+              return Reflect.has(target, property);
+            },
+            ownKeys(target) {
+              const keys = Reflect.ownKeys(target);
+              if (!keys.includes("__captureOriginalFactory")) {
+                keys.push("__captureOriginalFactory");
+              }
+              return keys;
+            },
+            getOwnPropertyDescriptor(target, property) {
+              if (property === "__captureOriginalFactory") {
+                return {
+                  configurable: true,
+                  enumerable: false,
+                  writable: true,
+                  value: target,
+                };
+              }
+
+              return Object.getOwnPropertyDescriptor(target, property);
+            },
+          });
+        }
+
         // Produces a patched anime.js instance from the original factory call.
         const wrapped = function wrappedAnime() {
           // Every anime.js invocation yields a timeline/animation object. Patch
@@ -311,35 +412,11 @@ const FRAMEWORK_PATCHES = [
           return patchInstance(instance);
         };
 
-        const descriptors = Object.getOwnPropertyDescriptors(factory);
-        for (const key of Object.keys(descriptors)) {
-          if (
-            key === "length" ||
-            key === "name" ||
-            key === "arguments" ||
-            key === "caller"
-          ) {
-            continue;
-          }
+        copyDescriptorsOnto(wrapped, factory);
 
-          Object.defineProperty(wrapped, key, descriptors[key]);
-        }
-
-        if (typeof factory.timeline === "function") {
-          Object.defineProperty(wrapped, "timeline", {
-            configurable: true,
-            enumerable: true,
-            writable: true,
-            // Ensures nested timelines created via anime.timeline() inherit the bootstrap patch.
-            value: function timelineWrapper() {
-              // `anime.timeline()` constructs nested timelines without routing
-              // through the main factory function. Mirror the same patch step
-              // so the bootstrap logic remains consistent across APIs.
-              const instance = factory.timeline.apply(factory, arguments);
-              return patchInstance(instance);
-            },
-          });
-        }
+        patchMethod(wrapped, factory, "timeline");
+        patchMethod(wrapped, factory, "createTimeline");
+        patchMethod(wrapped, factory, "animate");
 
         return wrapped;
       };
@@ -552,10 +629,23 @@ function buildCaptureTimeline(targetTimeMs, intervalMs) {
 async function synchronizeAnimationState(page, targetTimeMs) {
   await page.evaluate((targetTimeMs) => {
     const automationState = window.__captureAutomation;
+    let rafTimestamp = targetTimeMs;
+    let restorePerformanceNow;
 
     if (automationState?.setPerformanceNowOverride) {
       try {
-        automationState.setPerformanceNowOverride(targetTimeMs);
+        const overrideValue =
+          automationState.setPerformanceNowOverride(targetTimeMs);
+        if (Number.isFinite(overrideValue)) {
+          rafTimestamp = overrideValue;
+        }
+        restorePerformanceNow = () => {
+          try {
+            automationState.setPerformanceNowOverride();
+          } catch (error) {
+            console.warn("Failed to restore performance.now()", error);
+          }
+        };
       } catch (error) {
         console.warn("Failed to override performance.now()", error);
       }
@@ -571,9 +661,16 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
+    let executedCallbacks = 0;
+    let pendingRafCount = 0;
+    let pendingCountKnown = false;
+
     if (automationState?.flushRafCallbacks) {
       try {
-        automationState.flushRafCallbacks(targetTimeMs);
+        const count = automationState.flushRafCallbacks(rafTimestamp);
+        if (Number.isFinite(count)) {
+          executedCallbacks += count;
+        }
       } catch (error) {
         console.warn("Failed to flush requestAnimationFrame callbacks", error);
       }
@@ -581,12 +678,65 @@ async function synchronizeAnimationState(page, targetTimeMs) {
 
     if (automationState?.runRafCallbacksImmediately) {
       try {
-        automationState.runRafCallbacksImmediately(targetTimeMs);
+        const count = automationState.runRafCallbacksImmediately(rafTimestamp);
+        if (Number.isFinite(count)) {
+          executedCallbacks += count;
+        }
       } catch (error) {
         console.warn(
           "Failed to invoke requestAnimationFrame callbacks directly",
           error
         );
+      }
+    }
+
+    if (typeof automationState?.countPendingRafCallbacks === "function") {
+      try {
+        const pending = automationState.countPendingRafCallbacks();
+        if (Number.isFinite(pending)) {
+          pendingRafCount = pending;
+          pendingCountKnown = true;
+        }
+      } catch (error) {
+        console.warn(
+          "Failed to inspect requestAnimationFrame callback state",
+          error
+        );
+      }
+    }
+
+    const shouldReplayCallbacks =
+      (pendingCountKnown && pendingRafCount === 0) ||
+      (!pendingCountKnown && executedCallbacks === 0);
+
+    if (shouldReplayCallbacks) {
+      let replayedCount = 0;
+
+      if (automationState?.runMostRecentRafCallbacks) {
+        try {
+          const count = automationState.runMostRecentRafCallbacks(
+            rafTimestamp
+          );
+          if (Number.isFinite(count)) {
+            replayedCount += count;
+          }
+        } catch (error) {
+          console.warn(
+            "Failed to replay most recent requestAnimationFrame callbacks",
+            error
+          );
+        }
+      }
+
+      if (replayedCount === 0 && automationState?.runLoopedRafCallbacks) {
+        try {
+          automationState.runLoopedRafCallbacks(rafTimestamp);
+        } catch (error) {
+          console.warn(
+            "Failed to replay cached requestAnimationFrame callbacks",
+            error
+          );
+        }
       }
     }
 
@@ -613,7 +763,30 @@ async function synchronizeAnimationState(page, targetTimeMs) {
         console.warn("Failed to seek anime.js instance to target time", error);
       }
     }
+
+    if (typeof restorePerformanceNow === "function") {
+      restorePerformanceNow();
+    }
   }, targetTimeMs);
+}
+
+// Restores performance.now() to its native implementation so upcoming virtual time
+// advances reflect the browser-provided timestamp rather than a fixed override.
+async function restorePerformanceNow(page) {
+  await page.evaluate(() => {
+    const overrideSetter =
+      window.__captureAutomation?.setPerformanceNowOverride;
+
+    if (typeof overrideSetter !== "function") {
+      return;
+    }
+
+    try {
+      overrideSetter();
+    } catch (error) {
+      console.warn("Failed to restore performance.now()", error);
+    }
+  });
 }
 
 // Adds a Playwright init script that counts requestAnimationFrame ticks for bootstrap tracking.
@@ -629,28 +802,72 @@ async function injectRafProbe(context) {
       window.cancelAnimationFrame.bind(window);
     const originalPerformanceNow = performance.now.bind(performance);
     automationState.originalPerformanceNow = originalPerformanceNow;
-    automationState.performanceNowOrigin = performance.now();
 
-    let firstPerformanceNow = null;
+    const performanceNowState = {
+      active: false,
+      baseline: null,
+      overrideValue: null,
+    };
+
+    const ensurePerformanceBaseline = () => {
+      if (performanceNowState.baseline !== null) {
+        return performanceNowState.baseline;
+      }
+
+      const value = originalPerformanceNow();
+      performanceNowState.baseline = value;
+      automationState.firstPerformanceNow = value;
+      return value;
+    };
+
     Object.defineProperty(performance, "now", {
       configurable: true,
       value: () => {
-        const value = originalPerformanceNow();
-        if (firstPerformanceNow === null) {
-          firstPerformanceNow = value;
-          automationState.firstPerformanceNow = value;
+        if (!performanceNowState.active) {
+          const value = originalPerformanceNow();
+          if (performanceNowState.baseline === null) {
+            performanceNowState.baseline = value;
+            automationState.firstPerformanceNow = value;
+          }
+          return value;
         }
-        return value;
+
+        return performanceNowState.overrideValue;
       },
     });
 
     const pendingCallbacks = new Map();
     const registeredCallbacks = new Map();
+    const callbackStats = new Map();
+    const loopCallbacks = new Set();
+    const lastExecutedCallbacks = new Set();
     automationState.disableRafScheduling = false;
+
+    // Remembers callbacks that have run at least once so stopped RAF loops can
+    // be revived when virtual time seeks backwards.
+    const recordExecutedCallback = (callback) => {
+      if (typeof callback !== "function") {
+        return;
+      }
+
+      lastExecutedCallbacks.add(callback);
+    };
 
     window.requestAnimationFrame = (callback) => {
       if (automationState.disableRafScheduling) {
         return 0;
+      }
+
+      let stats = callbackStats.get(callback);
+      if (!stats) {
+        stats = { scheduledCount: 0 };
+        callbackStats.set(callback, stats);
+      }
+
+      stats.scheduledCount += 1;
+
+      if (stats.scheduledCount >= 2) {
+        loopCallbacks.add(callback);
       }
 
       let handle;
@@ -658,7 +875,12 @@ async function injectRafProbe(context) {
         automationState.rafTickCount += 1;
         pendingCallbacks.delete(handle);
         registeredCallbacks.delete(handle);
-        return callback(timestamp);
+
+        try {
+          return callback(timestamp);
+        } finally {
+          recordExecutedCallback(callback);
+        }
       };
       handle = originalRequestAnimationFrame((timestamp) => wrapped(timestamp));
       pendingCallbacks.set(handle, { callback, wrapped });
@@ -674,69 +896,69 @@ async function injectRafProbe(context) {
 
     automationState.setPerformanceNowOverride = (fixedTimestamp) => {
       if (typeof fixedTimestamp === "number") {
-        const origin =
-          typeof automationState.firstPerformanceNow === "number"
-            ? automationState.firstPerformanceNow
-            : typeof automationState.performanceNowOrigin === "number"
-              ? automationState.performanceNowOrigin
-              : 0;
-        Object.defineProperty(performance, "now", {
-          configurable: true,
-          value: () => origin + fixedTimestamp,
-        });
-      } else {
-        Object.defineProperty(performance, "now", {
-          configurable: true,
-          value: originalPerformanceNow,
-        });
+        const baseline = ensurePerformanceBaseline();
+        performanceNowState.overrideValue = baseline + fixedTimestamp;
+        performanceNowState.active = true;
+        return performanceNowState.overrideValue;
       }
+
+      performanceNowState.overrideValue = null;
+      performanceNowState.active = false;
+      return null;
     };
 
     automationState.flushRafCallbacks = (targetTimestamp) => {
-      const iterationLimit = 1000;
-      let iterations = 0;
+      if (pendingCallbacks.size === 0) {
+        return 0;
+      }
 
-      while (pendingCallbacks.size > 0 && iterations < iterationLimit) {
-        const callbacks = Array.from(pendingCallbacks.entries());
-        pendingCallbacks.clear();
+      const callbacks = Array.from(pendingCallbacks.entries());
+      pendingCallbacks.clear();
+      let executed = 0;
 
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
         for (const [handle, { wrapped }] of callbacks) {
           try {
             wrapped(targetTimestamp);
+            executed += 1;
           } catch (error) {
             console.warn(
               "Failed to flush requestAnimationFrame callback",
               error
             );
           }
+
           registeredCallbacks.delete(handle);
         }
-
-        iterations += 1;
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
       }
 
-      if (pendingCallbacks.size > 0) {
-        console.warn(
-          "Stopped flushing requestAnimationFrame callbacks after reaching the iteration cap."
-        );
-      }
+      return executed;
     };
 
     automationState.runRafCallbacksImmediately = (targetTimestamp) => {
       if (registeredCallbacks.size === 0) {
-        return;
+        return 0;
       }
 
-      automationState.disableRafScheduling = true;
-
       const callbacks = Array.from(registeredCallbacks.entries());
-      pendingCallbacks.clear();
+      let executed = 0;
+
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
 
       try {
         for (const [handle, callback] of callbacks) {
           try {
             registeredCallbacks.delete(handle);
+            pendingCallbacks.delete(handle);
             callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
           } catch (error) {
             console.warn(
               "Failed to invoke requestAnimationFrame callback directly",
@@ -745,8 +967,75 @@ async function injectRafProbe(context) {
           }
         }
       } finally {
-        automationState.disableRafScheduling = false;
+        automationState.disableRafScheduling = previousDisable;
       }
+
+      return executed;
+    };
+
+    automationState.runLoopedRafCallbacks = (targetTimestamp) => {
+      if (loopCallbacks.size === 0) {
+        return 0;
+      }
+
+      let executed = 0;
+
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
+        for (const callback of loopCallbacks) {
+          try {
+            callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to replay looping requestAnimationFrame callback",
+              error
+            );
+          }
+        }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
+      }
+
+      return executed;
+    };
+
+    automationState.countPendingRafCallbacks = () =>
+      pendingCallbacks.size + registeredCallbacks.size;
+
+    // Replays the most recently executed RAF callbacks even if they are not
+    // classified as loops so timestamp displays can roll back.
+    automationState.runMostRecentRafCallbacks = (targetTimestamp) => {
+      if (lastExecutedCallbacks.size === 0) {
+        return 0;
+      }
+
+      let executed = 0;
+
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
+        for (const callback of lastExecutedCallbacks) {
+          try {
+            callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to replay most recent requestAnimationFrame callback",
+              error
+            );
+          }
+        }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
+      }
+
+      return executed;
     };
   });
 }
@@ -848,6 +1137,7 @@ async function captureAnimationFile(browser, animationFile, config) {
       const delta = normalizedTimestamp - currentVirtualTime;
 
       if (delta > 0) {
+        await restorePerformanceNow(page);
         await advanceVirtualTime(client, delta);
         currentVirtualTime = normalizedTimestamp;
       }
@@ -873,6 +1163,8 @@ async function captureAnimationFile(browser, animationFile, config) {
       await page.screenshot({ path: screenshotPath });
       screenshotPaths.push(screenshotPath);
     }
+
+    await restorePerformanceNow(page);
 
     return screenshotPaths;
   } finally {
