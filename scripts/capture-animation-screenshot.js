@@ -916,15 +916,25 @@ async function injectRafProbe(context) {
       pendingCallbacks.clear();
       let executed = 0;
 
-      for (const [handle, { wrapped }] of callbacks) {
-        try {
-          wrapped(targetTimestamp);
-          executed += 1;
-        } catch (error) {
-          console.warn("Failed to flush requestAnimationFrame callback", error);
-        }
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
 
-        registeredCallbacks.delete(handle);
+      try {
+        for (const [handle, { wrapped }] of callbacks) {
+          try {
+            wrapped(targetTimestamp);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to flush requestAnimationFrame callback",
+              error
+            );
+          }
+
+          registeredCallbacks.delete(handle);
+        }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
       }
 
       return executed;
@@ -938,19 +948,26 @@ async function injectRafProbe(context) {
       const callbacks = Array.from(registeredCallbacks.entries());
       let executed = 0;
 
-      for (const [handle, callback] of callbacks) {
-        try {
-          registeredCallbacks.delete(handle);
-          pendingCallbacks.delete(handle);
-          callback.call(window, targetTimestamp);
-          recordExecutedCallback(callback);
-          executed += 1;
-        } catch (error) {
-          console.warn(
-            "Failed to invoke requestAnimationFrame callback directly",
-            error
-          );
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
+        for (const [handle, callback] of callbacks) {
+          try {
+            registeredCallbacks.delete(handle);
+            pendingCallbacks.delete(handle);
+            callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to invoke requestAnimationFrame callback directly",
+              error
+            );
+          }
         }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
       }
 
       return executed;
@@ -963,17 +980,24 @@ async function injectRafProbe(context) {
 
       let executed = 0;
 
-      for (const callback of loopCallbacks) {
-        try {
-          callback.call(window, targetTimestamp);
-          recordExecutedCallback(callback);
-          executed += 1;
-        } catch (error) {
-          console.warn(
-            "Failed to replay looping requestAnimationFrame callback",
-            error
-          );
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
+        for (const callback of loopCallbacks) {
+          try {
+            callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to replay looping requestAnimationFrame callback",
+              error
+            );
+          }
         }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
       }
 
       return executed;
@@ -991,17 +1015,24 @@ async function injectRafProbe(context) {
 
       let executed = 0;
 
-      for (const callback of lastExecutedCallbacks) {
-        try {
-          callback.call(window, targetTimestamp);
-          recordExecutedCallback(callback);
-          executed += 1;
-        } catch (error) {
-          console.warn(
-            "Failed to replay most recent requestAnimationFrame callback",
-            error
-          );
+      const previousDisable = automationState.disableRafScheduling;
+      automationState.disableRafScheduling = true;
+
+      try {
+        for (const callback of lastExecutedCallbacks) {
+          try {
+            callback.call(window, targetTimestamp);
+            recordExecutedCallback(callback);
+            executed += 1;
+          } catch (error) {
+            console.warn(
+              "Failed to replay most recent requestAnimationFrame callback",
+              error
+            );
+          }
         }
+      } finally {
+        automationState.disableRafScheduling = previousDisable;
       }
 
       return executed;
