@@ -705,18 +705,38 @@ async function synchronizeAnimationState(page, targetTimeMs) {
       }
     }
 
-    const shouldReplayLoopCallbacks =
+    const shouldReplayCallbacks =
       (pendingCountKnown && pendingRafCount === 0) ||
       (!pendingCountKnown && executedCallbacks === 0);
 
-    if (shouldReplayLoopCallbacks && automationState?.runLoopedRafCallbacks) {
-      try {
-        automationState.runLoopedRafCallbacks(rafTimestamp);
-      } catch (error) {
-        console.warn(
-          "Failed to replay cached requestAnimationFrame callbacks",
-          error
-        );
+    if (shouldReplayCallbacks) {
+      let replayedCount = 0;
+
+      if (automationState?.runMostRecentRafCallbacks) {
+        try {
+          const count = automationState.runMostRecentRafCallbacks(
+            rafTimestamp
+          );
+          if (Number.isFinite(count)) {
+            replayedCount += count;
+          }
+        } catch (error) {
+          console.warn(
+            "Failed to replay most recent requestAnimationFrame callbacks",
+            error
+          );
+        }
+      }
+
+      if (replayedCount === 0 && automationState?.runLoopedRafCallbacks) {
+        try {
+          automationState.runLoopedRafCallbacks(rafTimestamp);
+        } catch (error) {
+          console.warn(
+            "Failed to replay cached requestAnimationFrame callbacks",
+            error
+          );
+        }
       }
     }
 
@@ -820,7 +840,18 @@ async function injectRafProbe(context) {
     const registeredCallbacks = new Map();
     const callbackStats = new Map();
     const loopCallbacks = new Set();
+    const lastExecutedCallbacks = new Set();
     automationState.disableRafScheduling = false;
+
+    // Remembers callbacks that have run at least once so stopped RAF loops can
+    // be revived when virtual time seeks backwards.
+    const recordExecutedCallback = (callback) => {
+      if (typeof callback !== "function") {
+        return;
+      }
+
+      lastExecutedCallbacks.add(callback);
+    };
 
     window.requestAnimationFrame = (callback) => {
       if (automationState.disableRafScheduling) {
@@ -844,7 +875,12 @@ async function injectRafProbe(context) {
         automationState.rafTickCount += 1;
         pendingCallbacks.delete(handle);
         registeredCallbacks.delete(handle);
-        return callback(timestamp);
+
+        try {
+          return callback(timestamp);
+        } finally {
+          recordExecutedCallback(callback);
+        }
       };
       handle = originalRequestAnimationFrame((timestamp) => wrapped(timestamp));
       pendingCallbacks.set(handle, { callback, wrapped });
@@ -907,6 +943,7 @@ async function injectRafProbe(context) {
           registeredCallbacks.delete(handle);
           pendingCallbacks.delete(handle);
           callback.call(window, targetTimestamp);
+          recordExecutedCallback(callback);
           executed += 1;
         } catch (error) {
           console.warn(
@@ -929,6 +966,7 @@ async function injectRafProbe(context) {
       for (const callback of loopCallbacks) {
         try {
           callback.call(window, targetTimestamp);
+          recordExecutedCallback(callback);
           executed += 1;
         } catch (error) {
           console.warn(
@@ -943,6 +981,31 @@ async function injectRafProbe(context) {
 
     automationState.countPendingRafCallbacks = () =>
       pendingCallbacks.size + registeredCallbacks.size;
+
+    // Replays the most recently executed RAF callbacks even if they are not
+    // classified as loops so timestamp displays can roll back.
+    automationState.runMostRecentRafCallbacks = (targetTimestamp) => {
+      if (lastExecutedCallbacks.size === 0) {
+        return 0;
+      }
+
+      let executed = 0;
+
+      for (const callback of lastExecutedCallbacks) {
+        try {
+          callback.call(window, targetTimestamp);
+          recordExecutedCallback(callback);
+          executed += 1;
+        } catch (error) {
+          console.warn(
+            "Failed to replay most recent requestAnimationFrame callback",
+            error
+          );
+        }
+      }
+
+      return executed;
+    };
   });
 }
 
