@@ -16,7 +16,10 @@ To keep the automation generic while matching real playback, the script ships
 with a pluggable "framework patch" registry. Each patch is injected before
 page scripts execute and activates only when its target framework is present.
 The current registry contains a lightweight anime.js interceptor that restores
-missing lifecycle hooks:
+missing lifecycle hooks. It supports both the classic anime.js 3.x factory and
+the anime.js 4.x helpers (`createTimeline`, `animate`, and modular UMD bundles),
+so newer builds such as the `anime42.umd.min.js` demo asset remain compatible
+with the capture workflow:
 
 * A `requestAnimationFrame` probe counts initial ticks so that the automation
   waits for the first frame of real time before seizing virtual time control.
