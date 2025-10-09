@@ -6,7 +6,7 @@
 
 Playwright 捕获脚本运行在 Chrome 的虚拟时间域中，该模式会跳过 `requestAnimationFrame` 回调。Anime.js 通常会在这些回调中切换 `began` 标记并触发 `begin`、`loopBegin` 等生命周期钩子，因此如果直接快进到 4 秒，`animejs-virtual-time.html` 页脚元素会保持隐藏状态。
 
-为在保持自动化通用性的同时复现真实播放效果，脚本内置了一个可插拔的“框架补丁”注册表。每个补丁都会在页面脚本执行前注入，只在检测到目标框架时启用。当前注册表包含一个轻量的 anime.js 拦截器，用来恢复缺失的生命周期钩子：
+为在保持自动化通用性的同时复现真实播放效果，脚本内置了一个可插拔的“框架补丁”注册表。每个补丁都会在页面脚本执行前注入，只在检测到目标框架时启用。当前注册表包含一个轻量的 anime.js 拦截器，用来恢复缺失的生命周期钩子，同时兼容传统的 anime.js 3.x 工厂以及 anime.js 4.x 新增的助手（如 `createTimeline`、`animate` 和模块化的 UMD 构建）：
 
 * `requestAnimationFrame` 探针会统计初始 tick，确保自动化在取得首帧真实时间之前不会接管虚拟时间控制。
 * 拦截器包装全局 `anime` 工厂（以及它创建的时间线），并在第一次虚拟时间 `seek()` 调用前预热实例的 `currentTime`。Anime.js 默认认为至少要有一个前置帧将 `currentTime` 推过零点才会触发大多数生命周期回调——包括 `begin`、`loopBegin`、`update` 和 `change*`。通过模拟该首帧，脚本让 anime.js 按正确顺序运行原生回调级联，后续钩子（`loopComplete`、`complete` 等）会像实时播放一样被触发。
