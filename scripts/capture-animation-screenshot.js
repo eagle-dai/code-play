@@ -483,8 +483,9 @@ const FRAMEWORK_PATCHES = [
 
 // Confirms the example directory exists so captures have input files to process.
 async function ensureDirectoryAvailable(directoryPath) {
+  let stats;
   try {
-    await fs.access(directoryPath);
+    stats = await fs.stat(directoryPath);
   } catch (error) {
     if (error?.code === "ENOENT") {
       throw new Error(
@@ -493,6 +494,12 @@ async function ensureDirectoryAvailable(directoryPath) {
     }
 
     throw error;
+  }
+
+  if (!stats.isDirectory()) {
+    throw new Error(
+      `Expected "${directoryPath}" to be a directory. Add animation examples under assets/example/.`
+    );
   }
 }
 
@@ -1302,6 +1309,7 @@ module.exports = {
   buildCaptureConfig,
   buildCaptureTimeline,
   containsWildcards,
+  ensureDirectoryAvailable,
   validateCaptureConfig,
   resolveAnimationPattern,
   wildcardToRegExp,

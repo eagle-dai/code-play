@@ -1,9 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   buildCaptureTimeline,
   containsWildcards,
+  ensureDirectoryAvailable,
   resolveAnimationPattern,
   validateCaptureConfig,
   wildcardToRegExp,
@@ -77,5 +81,20 @@ test('validateCaptureConfig enforces max wait not falling below the minimum', ()
         maxInitialRealtimeWaitMs: baseConfig.minInitialRealtimeWaitMs - 1,
       }),
     /greater than or equal/
+  );
+});
+
+test('ensureDirectoryAvailable rejects paths that are not directories', async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'capture-test-'));
+  const filePath = path.join(tmpRoot, 'example.html');
+  await fs.writeFile(filePath, '<html></html>');
+
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await assert.rejects(
+    ensureDirectoryAvailable(filePath),
+    /to be a directory/,
   );
 });
